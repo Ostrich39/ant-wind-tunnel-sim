@@ -1,0 +1,10 @@
+[package]
+name = "ant-wind-tunnel"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop airfoil design and analysis program"
+license = "MIT"
+
+[dependencies]
+solver = { path = "../solver" }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }

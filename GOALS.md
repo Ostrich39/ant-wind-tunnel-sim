@@ -24,6 +24,8 @@ The project is for personal use and learning. It is not for sale.
 ## Decisions
 
 - **Platform:** desktop app. A browser version is not in the scope at this time.
+- **Window library:** egui and eframe with the wgpu renderer (GPU).
+- **Update mode:** live. The program calculates a new result when an input changes.
 - **Language:** Rust for all core calculations.
 - **Order of work:** airfoils first (panel method). Arbitrary shapes later
   (live flow solver, labeled as approximate).
@@ -34,7 +36,7 @@ The project is for personal use and learning. It is not for sale.
 | Stage | Content | Status |
 |---|---|---|
 | 1 | Inviscid panel method, NACA 4-digit shapes, validation tests | Done |
-| 2 | Desktop window: draw the airfoil, pressure plot, angle-of-attack control | Not started |
+| 2 | Desktop window: airfoil view, pressure plot, live controls for angle and NACA shape | Done |
 | 3 | Boundary layer (friction drag, transition, Reynolds number) from Drela 1989 | Not started |
 | 4 | Shape editor and airfoil file import (.dat) | Not started |
 | 5 | Flow field display (streamlines, pressure colors) | Not started |
@@ -46,6 +48,15 @@ The project is for personal use and learning. It is not for sale.
   says it is zero, and the printed value shows the numerical error.
 - Lift values are too high compared with wind tunnel data, and the solver
   cannot predict stall. Stage 3 corrects this.
+
+## Status against the performance goals (stage 2)
+
+| Goal | Target | Measured | Status |
+|---|---|---|---|
+| Small file size | Below 20 MB | 10.1 MB (Linux release build) | Met on Linux. Not measured on Windows or macOS |
+| Quick results | Below 0.1 s | 2 ms to 3 ms at 160 panels. An automated test applies the limit at 400 panels | Met |
+| Smooth operation | 60 frames per second | Not measured. The test computer has no GPU | Open |
+| High-quality render | Sharp at any window size | Lines are vector shapes with anti-aliasing. Checked by eye on one screen capture | Partly checked |
 
 ## Validation status of stage 1
 
@@ -68,7 +79,6 @@ The project is for personal use and learning. It is not for sale.
 ## Open decisions
 
 - Accuracy target against wind tunnel data (for example, lift within 5%).
-- Live update while the user drags a shape, or update after each change.
 
 ## References
 

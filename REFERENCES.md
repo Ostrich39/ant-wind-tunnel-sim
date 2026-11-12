@@ -50,6 +50,13 @@ Check words:
 
 No code from this software is copied into this project.
 
+### Libraries that the program uses
+
+| # | Library | License | Link | Used for |
+|---|---|---|---|---|
+| 3.12 | egui and eframe 0.37 | MIT or Apache-2.0 | https://github.com/emilk/egui | Window, controls, and drawing (`crates/app`) |
+| 3.13 | wgpu (through eframe) | MIT or Apache-2.0 | https://github.com/gfx-rs/wgpu | GPU rendering |
+
 ## 4. Validation studies
 
 | # | Source | Content | Check |
