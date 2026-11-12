@@ -224,7 +224,7 @@ impl TunnelApp {
 
         section(ui, "FLOW");
         ui.add(
-            egui::Slider::new(&mut self.inputs.alpha, -10.0..=15.0)
+            egui::Slider::new(&mut self.inputs.alpha, -10.0..=20.0)
                 .step_by(0.1)
                 .fixed_decimals(1)
                 .suffix("°")
@@ -338,6 +338,13 @@ impl TunnelApp {
                         );
                         if let Some(text) = separation_text(friction) {
                             ui.label(RichText::new(text).size(12.0).color(SEPARATION));
+                        }
+                        if large_separation(friction) {
+                            ui.label(
+                                RichText::new(STALL_WARNING)
+                                    .size(12.0)
+                                    .color(view::PRESSURE),
+                            );
                         }
                     }
                     None => {
@@ -634,6 +641,18 @@ fn label(painter: &egui::Painter, pos: Pos2, anchor: Align2, text: &str, color: 
     painter.text(pos, anchor, text, FontId::proportional(12.0), color);
 }
 
+const STALL_WARNING: &str = "Near stall or after it. The lift can be much too high and \
+     the drag much too low: the method does not predict an abrupt stall.";
+
+/// True if the flow separates before 95% of the chord on a surface. The
+/// results are then not reliable (see GOALS.md).
+fn large_separation(friction: &InteractionResult) -> bool {
+    [friction.separation_upper, friction.separation_lower]
+        .iter()
+        .flatten()
+        .any(|x| *x < 0.95)
+}
+
 /// Text for a chord position, in percent.
 fn position_text(x: Option<f64>) -> String {
     match x {
@@ -804,6 +823,45 @@ mod tests {
             })
             .unwrap();
         assert!(done.friction.is_some());
+    }
+
+    #[test]
+    fn stall_warning_is_shown_only_for_large_separation() {
+        let mut analyzer = Analyzer::default();
+        let symmetric = Inputs {
+            camber: 0,
+            camber_pos: 0,
+            reynolds: 6.0e6,
+            ..inputs()
+        };
+        let normal = analyzer
+            .compute(&Inputs {
+                alpha: 4.0,
+                ..symmetric
+            })
+            .unwrap();
+        assert!(!large_separation(&normal.friction.unwrap()));
+        let mut analyzer = Analyzer::default();
+        let high = analyzer
+            .compute(&Inputs {
+                alpha: 15.0,
+                ..symmetric
+            })
+            .unwrap();
+        if let Some(friction) = high.friction {
+            if let Some(x) = friction.separation_upper {
+                assert_eq!(large_separation(&friction), x < 0.95);
+            }
+        }
+        let stalled = Analyzer::default()
+            .compute(&Inputs {
+                alpha: 19.0,
+                ..symmetric
+            })
+            .unwrap();
+        assert!(large_separation(
+            &stalled.friction.expect("converged result at 19 deg")
+        ));
     }
 
     #[test]

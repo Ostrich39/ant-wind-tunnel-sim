@@ -26,9 +26,15 @@ use crate::wake::{SourceInfluence, Wake};
 pub const WAKE_PANELS: usize = 20;
 /// Wake length, divided by the chord.
 pub const WAKE_LENGTH: f64 = 1.0;
-pub const MAX_ITERATIONS: usize = 40;
-/// The iteration stops if the residual does not decrease this many times.
-const MAX_STALLED_STEPS: usize = 3;
+pub const MAX_ITERATIONS: usize = 60;
+/// Largest number of station layouts in one solution. A new layout is
+/// necessary when the stagnation point moves to a different panel.
+const MAX_LAYOUTS: usize = 12;
+/// Iteration limit for `FrictionSystem::solve_quick`. 90% of the solutions
+/// in the test conditions converge in 20 iterations or less.
+const QUICK_ITERATIONS: usize = 30;
+/// The iteration also stops when the residual norm is below this.
+pub const RESIDUAL_TOLERANCE: f64 = 1.0e-9;
 /// The iteration stops when the largest relative change is below this.
 pub const TOLERANCE: f64 = 1.0e-4;
 
@@ -352,6 +358,27 @@ pub fn solve_interaction(
     options: &Options,
     warm_start: Option<&WarmStart>,
 ) -> Result<(InteractionResult, WarmStart), String> {
+    solve_limited(
+        foil,
+        system,
+        airfoil_response,
+        alpha_deg,
+        options,
+        warm_start,
+        MAX_ITERATIONS,
+    )
+}
+
+/// The same as `solve_interaction`, with a limit for the number of iterations.
+fn solve_limited(
+    foil: &Airfoil,
+    system: &PanelSystem,
+    airfoil_response: &(Vec<Vec<f64>>, Vec<Vec<f64>>),
+    alpha_deg: f64,
+    options: &Options,
+    warm_start: Option<&WarmStart>,
+    max_iterations: usize,
+) -> Result<(InteractionResult, WarmStart), String> {
     let re = options.re;
     if !(re.is_finite() && re > 0.0) {
         return Err("the Reynolds number must be more than zero".into());
@@ -372,7 +399,10 @@ pub fn solve_interaction(
     let mut carried: Option<WarmStart> = warm_start.cloned();
     let mut outcome = None;
     // Outer loop: the stagnation point can move to a different panel.
-    for _ in 0..4 {
+    let mut total_iterations = 0;
+    // True after the stagnation point moved to a different panel.
+    let mut layout_changed = false;
+    for _ in 0..MAX_LAYOUTS {
         let lay = layout(system, foil, &wake, &vt_current)?;
         let n = lay.stations.len();
         let sources_from_mass = source_table(&lay, &panel_len);
@@ -409,8 +439,9 @@ pub fn solve_interaction(
         }
 
         // Start values.
-        let (mut values, mut flow) = match carried.as_ref().and_then(|start| start.values_for(&lay))
-        {
+        let remapped = carried.as_ref().and_then(|start| start.values_for(&lay));
+        let from_other_layout = remapped.is_some() && layout_changed;
+        let (mut values, mut flow) = match remapped {
             Some(start) => start,
             None => start_values(&lay, &ue_inviscid, options)?,
         };
@@ -423,6 +454,10 @@ pub fn solve_interaction(
                 })
                 .collect()
         };
+        if from_other_layout {
+            let ue_now = edge_speed(&values);
+            repair_stagnation(&lay, &mut values, &mut flow, &ue_now, options);
+        }
         let state_of = |k: usize, values: &[[f64; 3]], ue: &[f64], flow: &[Flow]| State {
             xi: lay.stations[k].xi,
             ue: ue[k],
@@ -499,9 +534,13 @@ pub fn solve_interaction(
         let mut converged = false;
         let mut iterations = 0;
         let mut last_change = f64::INFINITY;
-        let mut stalled = 0;
-        for iteration in 0..MAX_ITERATIONS {
-            iterations = iteration + 1;
+        let mut moved_in_iteration = false;
+        for iteration in 0..max_iterations {
+            if total_iterations >= max_iterations {
+                break;
+            }
+            total_iterations += 1;
+            iterations = total_iterations;
             let (residual, jacobian) = assemble(&values, &flow, true);
             if residual.iter().any(|v| !v.is_finite()) {
                 break;
@@ -513,81 +552,114 @@ pub fn solve_interaction(
                 break;
             };
 
-            // Limit the step: no thickness changes by more than a set part.
+            // Limit the step with one factor for all unknowns (Fidkowski,
+            // section V.B): the thicknesses do not decrease by more than
+            // 50%, the edge speed does not change by more than 20%, and the
+            // third variable has limits for its increase and decrease.
+            let ue_now = edge_speed(&values);
+            let shear_max = (0..n)
+                .filter(|&k| flow[k] != Flow::Laminar)
+                .map(|k| values[k][2])
+                .fold(0.0_f64, f64::max);
             let mut relax: f64 = 1.0;
             let mut change: f64 = 0.0;
+            let mut limit = |step: f64, largest: f64| {
+                if step > largest {
+                    relax = relax.min(largest / step);
+                }
+            };
             for k in 0..n {
-                let scaled = [
-                    delta[3 * k] / values[k][0],
-                    delta[3 * k + 1] / values[k][1],
-                    if flow[k] == Flow::Laminar {
-                        delta[3 * k + 2] / 10.0
-                    } else {
-                        delta[3 * k + 2] / (10.0 * values[k][2])
-                    },
-                ];
-                for value in scaled {
-                    change = change.max(value.abs());
-                    if value > 1.5 {
-                        relax = relax.min(1.5 / value);
-                    } else if value < -0.5 {
-                        relax = relax.min(-0.5 / value);
+                let (d_theta, d_mass, d_s) = (delta[3 * k], delta[3 * k + 1], delta[3 * k + 2]);
+                let d_speed: f64 = (0..n).map(|j| d[k][j] * delta[3 * j + 1]).sum();
+                change = change
+                    .max((d_theta / values[k][0]).abs())
+                    .max((d_mass / values[k][1]).abs())
+                    .max((d_speed / ue_now[k]).abs());
+                limit(-d_theta / values[k][0], 0.5);
+                limit(-d_mass / values[k][1], 0.5);
+                limit((d_speed / ue_now[k]).abs(), 0.2);
+                if flow[k] == Flow::Laminar {
+                    change = change.max(d_s.abs() / 10.0);
+                    limit(d_s, 2.0);
+                    if values[k][2] > 0.2 {
+                        limit(-d_s / values[k][2], 0.8);
+                    }
+                } else {
+                    change = change.max((d_s / values[k][2]).abs() / 10.0);
+                    limit(d_s, 0.05);
+                    if values[k][2] > 0.1 * shear_max {
+                        limit(-d_s / values[k][2], 0.8);
                     }
                 }
             }
-            // Line search: make the step smaller until the residual decreases.
-            let before = norm(&residual);
-            let apply = |relax: f64| {
-                let mut next = values.clone();
-                for k in 0..n {
-                    next[k][0] += relax * delta[3 * k];
-                    next[k][1] += relax * delta[3 * k + 1];
-                    next[k][2] += relax * delta[3 * k + 2];
-                    if flow[k] == Flow::Laminar {
-                        next[k][2] = next[k][2].max(0.0);
-                    } else {
-                        next[k][2] = next[k][2].clamp(1e-7, 0.3);
-                    }
+            for k in 0..n {
+                values[k][0] += relax * delta[3 * k];
+                values[k][1] += relax * delta[3 * k + 1];
+                values[k][2] += relax * delta[3 * k + 2];
+                if flow[k] == Flow::Laminar {
+                    values[k][2] = values[k][2].max(0.0);
+                } else if values[k][2] <= 0.0 {
+                    values[k][2] = 0.1 * shear_max.max(1e-3);
                 }
-                next
-            };
-            let mut next = apply(relax);
-            let mut after = norm(&assemble(&next, &flow, false).0);
-            let mut halvings = 0;
-            while (after >= before || after.is_nan()) && halvings < 8 {
-                relax *= 0.5;
-                halvings += 1;
-                next = apply(relax);
-                after = norm(&assemble(&next, &flow, false).0);
             }
-            values = next;
+            // Keep the shape factor above its lower limit.
+            let ue_next = edge_speed(&values);
+            for k in 0..n {
+                let h_min = if flow[k] == Flow::Wake { 1.00005 } else { 1.02 };
+                values[k][1] = values[k][1].max(h_min * values[k][0] * ue_next[k]);
+            }
             last_change = change;
-            // No progress: the iteration is in a region without a solution
-            // path (for example deep stall). Stop early.
-            stalled = if after < 0.999 * before || before < 1e-9 {
-                0
-            } else {
-                stalled + 1
-            };
-            if stalled >= MAX_STALLED_STEPS {
-                break;
-            }
+            let before = norm(&residual);
             let ue_new = edge_speed(&values);
-            let changed = update_flow(&lay, &mut values, &mut flow, &ue_new, options);
-            if change < TOLERANCE && !changed {
+            // The shape factor of an early iteration is not reliable, thus
+            // the laminar separation rule applies near convergence.
+            // After some iterations without convergence, it applies also,
+            // because laminar separation can be the cause.
+            let near_convergence = (relax == 1.0 && change < 0.2) || iteration >= 10;
+            let changed = update_flow(
+                &lay,
+                &mut values,
+                &mut flow,
+                &ue_new,
+                options,
+                near_convergence,
+            );
+            // Stagnation point check: surface speed of the panels near the
+            // stagnation point, with the sources of this iteration.
+            let j = lay.stagnation_panel;
+            let window = j.saturating_sub(3)..(j + 5).min(m);
+            let sigma: Vec<f64> = (0..panel_len.len())
+                .map(|p| (0..n).map(|k| sources_from_mass[p][k] * values[k][1]).sum())
+                .collect();
+            let speed: Vec<f64> = window
+                .clone()
+                .map(|p| {
+                    speed_inviscid[p]
+                        + influence.table[p]
+                            .iter()
+                            .zip(&sigma)
+                            .map(|(a, b)| a * b)
+                            .sum::<f64>()
+                })
+                .collect();
+            let found = speed.windows(2).position(|w| w[0] < 0.0 && w[1] >= 0.0);
+            if let Some(offset) = found {
+                if window.start + offset != j {
+                    for (p, value) in window.clone().zip(&speed) {
+                        vt_current[p] = *value;
+                    }
+                    moved_in_iteration = true;
+                    break;
+                }
+            }
+            if (change < TOLERANCE || before < RESIDUAL_TOLERANCE) && relax == 1.0 && !changed {
                 converged = true;
                 break;
             }
         }
 
-        // Surface speed with the sources, to check the stagnation point.
         let ue = edge_speed(&values);
-        for k in lay.upper.clone().chain(lay.lower.clone()) {
-            vt_current[lay.stations[k].panel] = lay.stations[k].sign * ue[k];
-        }
-        let moved = layout(system, foil, &wake, &vt_current)
-            .map(|next| next.stagnation_panel != lay.stagnation_panel)
-            .unwrap_or(false);
+        let moved = moved_in_iteration;
         carried = Some(WarmStart::new(&lay, &values, &flow, panel_len.len()));
         outcome = Some((
             lay,
@@ -599,11 +671,12 @@ pub fn solve_interaction(
             converged,
             last_change,
         ));
-        if !moved || !converged {
+        if !moved {
             break;
         }
-        // The stagnation point moved to a different panel: solve again
-        // with the new station layout, from the values of this solution.
+        layout_changed = true;
+        // The stagnation point moved to a different panel: continue with
+        // the new station layout, from the values of this iteration.
     }
 
     let (lay, values, flow, ue, sources_from_mass, iterations, converged, last_change) =
@@ -722,6 +795,7 @@ fn update_flow(
     flow: &mut [Flow],
     ue: &[f64],
     options: &Options,
+    near_convergence: bool,
 ) -> bool {
     let mut changed = false;
     for range in [&lay.upper, &lay.lower] {
@@ -736,8 +810,14 @@ fn update_flow(
                 && options
                     .forced_transition_x
                     .is_some_and(|x| lay.stations[k].x >= x);
-            if tripped || values[k][2] >= options.n_crit {
-                start = Some(k);
+            // Laminar separation also starts turbulent flow (no separation
+            // bubble model).
+            let separated =
+                near_convergence && values[k][1] / (ue[k] * values[k][0]) >= ibl::H_LIMIT_LAMINAR;
+            if tripped || separated || values[k][2] >= options.n_crit {
+                // Turbulent flow starts after this station. At the last
+                // station of the surface, it starts before it.
+                start = Some(if k + 1 == range.end { k - 1 } else { k });
                 break;
             }
         }
@@ -758,92 +838,219 @@ fn update_flow(
     changed
 }
 
-/// Start values: a direct boundary layer march with the friction-free
-/// edge speed. After a separation point, the last values are repeated.
+/// One station of the start-value march (Fidkowski, section V.A): direct
+/// mode; if it has no solution or the shape factor is above the limit,
+/// inverse mode; if that has no solution, an extrapolation.
+fn start_step(start: &State, xi: f64, ue: f64, options: &Options) -> State {
+    let limit = if start.flow == Flow::Laminar {
+        ibl::H_LIMIT_LAMINAR
+    } else {
+        ibl::H_LIMIT_TURBULENT
+    };
+    if let Some(next) = ibl::step(start, xi, ue, options.re, options.n_crit) {
+        if next.h() <= limit && (start.flow != Flow::Wake || next.h() > 1.001) {
+            return next;
+        }
+    }
+    let target = ibl::inverse_target(start, xi);
+    if let Some(next) = ibl::inverse_step(start, xi, ue, options.re, options.n_crit, target) {
+        return next;
+    }
+    if start.flow == Flow::Wake {
+        let r = (xi - start.xi) / (10.0 * start.dstar);
+        State {
+            xi,
+            ue,
+            dstar: (start.dstar + start.theta * r) / (1.0 + r),
+            ..*start
+        }
+    } else {
+        let scale = (xi / start.xi).sqrt();
+        State {
+            xi,
+            ue,
+            theta: start.theta * scale,
+            dstar: start.dstar * scale,
+            ..*start
+        }
+    }
+}
+
+/// Boundary layer state at the first station after the stagnation point
+/// (solution of the two similarity equations).
+fn stagnation_state(xi: f64, ue: f64, re: f64) -> State {
+    let theta = (0.075 * xi / (re * ue)).sqrt();
+    let mut state = State {
+        xi,
+        ue,
+        theta,
+        dstar: 2.2 * theta,
+        s: 0.0,
+        flow: Flow::Laminar,
+    };
+    for _ in 0..30 {
+        let base = ibl::similarity_residuals(&state, re);
+        let mut jac = vec![vec![0.0; 2]; 2];
+        for column in 0..2 {
+            let mut moved = state;
+            let step = if column == 0 {
+                moved.theta *= 1.0 + 1e-6;
+                1e-6 * state.theta
+            } else {
+                moved.dstar *= 1.0 + 1e-6;
+                1e-6 * state.dstar
+            };
+            let r = ibl::similarity_residuals(&moved, re);
+            jac[0][column] = (r[0] - base[0]) / step;
+            jac[1][column] = (r[1] - base[1]) / step;
+        }
+        let Some(change) = linalg::solve(jac, vec![-base[0], -base[1]]) else {
+            break;
+        };
+        state.theta += change[0].clamp(-0.3 * state.theta, 0.3 * state.theta);
+        state.dstar += change[1].clamp(-0.3 * state.dstar, 0.3 * state.dstar);
+        if base[0].abs() + base[1].abs() < 1e-10 {
+            break;
+        }
+    }
+    state
+}
+
+/// After the stagnation point moves to a different panel, the values of
+/// the first stations of each surface are not good start values. This
+/// function calculates them again with a short march from the stagnation
+/// point, with the edge speed of the current iteration.
+fn repair_stagnation(
+    lay: &Layout,
+    values: &mut [[f64; 3]],
+    flow: &mut [Flow],
+    ue: &[f64],
+    options: &Options,
+) {
+    const STATIONS: usize = 4;
+    for range in [&lay.upper, &lay.lower] {
+        let first = range.start;
+        let mut state = stagnation_state(lay.stations[first].xi, ue[first].max(1e-4), options.re);
+        values[first] = [state.theta, state.ue * state.dstar, 0.0];
+        flow[first] = Flow::Laminar;
+        for k in first + 1..(first + STATIONS).min(range.end) {
+            if flow[k] != Flow::Laminar {
+                break;
+            }
+            let Some(next) = ibl::step(
+                &state,
+                lay.stations[k].xi,
+                ue[k].max(1e-4),
+                options.re,
+                options.n_crit,
+            ) else {
+                break;
+            };
+            state = next;
+            values[k] = [state.theta, state.ue * state.dstar, state.s];
+        }
+    }
+}
+
+/// Start values: a boundary layer march with the friction-free edge speed.
 fn start_values(
     lay: &Layout,
     ue: &[f64],
     options: &Options,
 ) -> Result<(Vec<[f64; 3]>, Vec<Flow>), String> {
     let n = lay.stations.len();
+    let re = options.re;
     let mut values = vec![[0.0; 3]; n];
     let mut flow = vec![Flow::Laminar; n];
+    // Edge speed for the start march. The friction-free flow has a
+    // stagnation point at the trailing edge, which the flow with friction
+    // does not have. A march with that speed gives a boundary layer that is
+    // much too thick at the trailing edge. Thus, for the last 10% of the
+    // chord, the speed continues with the slope that it has between 80%
+    // and 90% of the chord. In the wake, the speed is not below the speed
+    // at the trailing edge. This changes only the start values.
+    let mut smooth: Vec<f64> = ue.to_vec();
+    let mut end_speed = 0.0;
     for range in [&lay.upper, &lay.lower] {
-        let xi: Vec<f64> = range.clone().map(|k| lay.stations[k].xi).collect();
-        let speed: Vec<f64> = range.clone().map(|k| ue[k].max(1e-3)).collect();
-        let forced = options.forced_transition_x.map(|limit| {
+        let at = |x: f64| {
             range
                 .clone()
-                .find(|&k| lay.stations[k].x >= limit)
-                .map_or(f64::INFINITY, |k| lay.stations[k].xi)
-        });
-        let result = ibl::march(&xi, &speed, options.re, true, forced, options.n_crit)?;
-        let mut last = result.states[0];
-        let mut amplification = 0.0;
-        for (offset, k) in range.clone().enumerate() {
-            if let Some(state) = result.states.get(offset) {
-                last = *state;
+                .find(|&k| lay.stations[k].x >= x)
+                .unwrap_or(range.end - 1)
+        };
+        let (a, b) = (at(0.8), at(0.9));
+        if b > a {
+            let slope = (ue[b] - ue[a]) / (lay.stations[b].xi - lay.stations[a].xi);
+            for k in b + 1..range.end {
+                let value = ue[b] + slope * (lay.stations[k].xi - lay.stations[b].xi);
+                smooth[k] = value.max(0.5 * ue[b]);
             }
-            let turbulent = result.transition.is_some_and(|(index, _)| offset > index);
-            flow[k] = if turbulent {
-                Flow::Turbulent
-            } else {
-                Flow::Laminar
-            };
-            if last.flow == Flow::Laminar {
-                amplification = last.s;
-            }
-            let s = match (turbulent, last.flow) {
-                (true, Flow::Laminar) => 0.03,
-                (true, _) => last.s,
-                (false, _) => amplification,
-            };
-            // After the march stops, the mass defect stays constant.
-            let mass = if offset < result.states.len() {
-                speed[offset] * last.dstar
-            } else {
-                values[k - 1][1]
-            };
-            values[k] = [last.theta, mass, s];
         }
+        end_speed += 0.5 * smooth[range.end - 1];
     }
-    // Wake: the sum of the two boundary layers at the trailing edge, then
-    // a direct march. If the march has no solution at a station, the
-    // momentum thickness stays constant and the shape factor decreases.
-    let (u, l) = (lay.upper.end - 1, lay.lower.end - 1);
-    let shear = |k: usize| {
-        if flow[k] == Flow::Turbulent {
-            values[k][2]
-        } else {
-            0.03
+    for k in lay.wake.clone() {
+        smooth[k] = ue[k].max(end_speed);
+    }
+    let ue = &smooth[..];
+    // Last state of each surface, as a turbulent state, for the wake start.
+    let mut ends = Vec::with_capacity(2);
+    for range in [&lay.upper, &lay.lower] {
+        // First station: similarity solution at the stagnation point.
+        let first = range.start;
+        let mut state = stagnation_state(lay.stations[first].xi, ue[first].max(1e-4), re);
+        values[first] = [state.theta, state.ue * state.dstar, 0.0];
+        let mut turbulent = false;
+        for k in first + 1..range.end {
+            // Start of turbulent flow at the station before this one.
+            if !turbulent {
+                let thick = re * state.ue * state.theta >= ibl::TRIP_MIN_RE_THETA;
+                let tripped = thick
+                    && options
+                        .forced_transition_x
+                        .is_some_and(|x| lay.stations[k - 1].x >= x);
+                // Laminar separation also starts turbulent flow (no
+                // separation bubble model).
+                let separated = state.h() >= ibl::H_LIMIT_LAMINAR;
+                if tripped || separated || state.s >= options.n_crit {
+                    turbulent = true;
+                    state = turbulent_start(&state, re);
+                }
+            }
+            let mut next = start_step(&state, lay.stations[k].xi, ue[k].max(1e-4), options);
+            if !turbulent && next.h() >= ibl::H_LIMIT_LAMINAR {
+                // Laminar separation in this interval: start turbulent flow
+                // at the station before it and solve the interval again.
+                turbulent = true;
+                state = turbulent_start(&state, re);
+                next = start_step(&state, lay.stations[k].xi, ue[k].max(1e-4), options);
+            }
+            state = next;
+            flow[k] = state.flow;
+            values[k] = [state.theta, state.ue * state.dstar, state.s];
         }
-    };
-    let theta = values[u][0] + values[l][0];
-    let dstar = values[u][1] / ue[u].max(1e-3) + values[l][1] / ue[l].max(1e-3);
+        ends.push(if turbulent {
+            state
+        } else {
+            turbulent_start(&state, re)
+        });
+    }
+    // Wake: the two boundary layers join, then the same march.
+    let (u, l) = (&ends[0], &ends[1]);
     let first = lay.wake.start;
+    let theta = u.theta + l.theta;
     let mut state = State {
         xi: lay.stations[first].xi,
-        ue: ue[first].max(1e-3),
+        ue: ue[first].max(1e-4),
         theta,
-        dstar: theta * (dstar / theta).clamp(1.2, 2.4),
-        s: (values[u][0] * shear(u) + values[l][0] * shear(l)) / theta,
+        dstar: (u.dstar + l.dstar).max(1.02 * theta),
+        s: (u.theta * u.s + l.theta * l.s) / theta,
         flow: Flow::Wake,
     };
+    // The mass defect is continuous at the trailing edge.
+    state.dstar = ((u.ue * u.dstar + l.ue * l.dstar) / state.ue).max(1.02 * theta);
     for k in lay.wake.clone() {
         if k > first {
-            let (xi, speed) = (lay.stations[k].xi, ue[k].max(1e-3));
-            state = match ibl::step(&state, xi, speed, options.re, options.n_crit) {
-                Some(next) if next.h() > 1.001 => next,
-                _ => {
-                    let h = 1.0 + (state.h() - 1.0) / (1.0 + 10.0 * (xi - state.xi));
-                    State {
-                        xi,
-                        ue: speed,
-                        dstar: h * state.theta,
-                        ..state
-                    }
-                }
-            };
+            state = start_step(&state, lay.stations[k].xi, ue[k].max(1e-4), options);
         }
         flow[k] = Flow::Wake;
         values[k] = [state.theta, state.ue * state.dstar, state.s];
@@ -955,23 +1162,35 @@ impl FrictionSystem {
         )
     }
 
-    /// Two attempts: from the given start values, then from the
-    /// friction-free flow. This is faster than `solve_robust` when there is
-    /// no solution.
+    /// Two attempts with a low limit for the number of iterations: from
+    /// the given start values, then from the friction-free flow. This is
+    /// for live update: it gives up sooner than `solve` when there is no
+    /// solution.
     pub fn solve_quick(
         &self,
         alpha_deg: f64,
         options: &Options,
         warm_start: Option<&WarmStart>,
     ) -> Result<(InteractionResult, WarmStart), String> {
+        let attempt = |warm: Option<&WarmStart>| {
+            solve_limited(
+                &self.foil,
+                &self.system,
+                &self.response,
+                alpha_deg,
+                options,
+                warm,
+                QUICK_ITERATIONS,
+            )
+        };
         if warm_start.is_some() {
-            if let Ok((result, start)) = self.solve(alpha_deg, options, warm_start) {
+            if let Ok((result, start)) = attempt(warm_start) {
                 if result.converged {
                     return Ok((result, start));
                 }
             }
         }
-        self.solve(alpha_deg, options, None)
+        attempt(None)
     }
 
     /// More than one attempt. See `solve_robust`.
