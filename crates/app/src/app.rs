@@ -7,6 +7,7 @@ use eframe::egui::{
 use solver::closure::Flow;
 use solver::interaction::{FrictionSystem, InteractionResult, Options, Surface, WarmStart};
 use solver::{naca4_for_friction, Airfoil, Solution};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 
 const BACKGROUND: Color32 = Color32::from_rgb(15, 19, 24);
 const PANEL: Color32 = Color32::from_rgb(22, 27, 34);
@@ -180,10 +181,91 @@ const NO_SOLUTION_TEXT: &str = "The friction calculation has no solution at this
      The cause is usually stall (the flow separates from a large part of the surface). \
      Decrease the angle of attack, or move the angle slowly from a lower value.";
 
+/// Runs the calculation on a second thread, so that the window stays
+/// responsive during a slow calculation (near stall, a calculation can
+/// take some tenths of a second).
+///
+/// Only the newest request is kept. If the inputs change during a
+/// calculation, the worker goes directly to the newest inputs when the
+/// current calculation is complete.
+pub struct Worker {
+    request: Arc<(Mutex<Request>, Condvar)>,
+    results: mpsc::Receiver<(Inputs, Result<Computed, String>)>,
+}
+
+#[derive(Default)]
+struct Request {
+    inputs: Option<Inputs>,
+    stop: bool,
+}
+
+impl Worker {
+    /// `wake` is called on the worker thread each time a result is ready.
+    pub fn new(wake: impl Fn() + Send + 'static) -> Self {
+        let request = Arc::new((Mutex::new(Request::default()), Condvar::new()));
+        let (sender, results) = mpsc::channel();
+        let shared = Arc::clone(&request);
+        std::thread::spawn(move || {
+            let mut analyzer = Analyzer::default();
+            loop {
+                let inputs = {
+                    let (lock, signal) = &*shared;
+                    let Ok(mut guard) = lock.lock() else { return };
+                    loop {
+                        if guard.stop {
+                            return;
+                        }
+                        if let Some(inputs) = guard.inputs.take() {
+                            break inputs;
+                        }
+                        guard = match signal.wait(guard) {
+                            Ok(guard) => guard,
+                            Err(_) => return,
+                        };
+                    }
+                };
+                let result = analyzer.compute(&inputs);
+                if sender.send((inputs, result)).is_err() {
+                    return;
+                }
+                wake();
+            }
+        });
+        Self { request, results }
+    }
+
+    /// Asks for a calculation. A request that is not started yet is replaced.
+    pub fn submit(&self, inputs: Inputs) {
+        let (lock, signal) = &*self.request;
+        if let Ok(mut guard) = lock.lock() {
+            guard.inputs = Some(inputs);
+            signal.notify_one();
+        }
+    }
+
+    /// The newest completed result, if there is one.
+    pub fn latest(&self) -> Option<(Inputs, Result<Computed, String>)> {
+        self.results.try_iter().last()
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let (lock, signal) = &*self.request;
+        if let Ok(mut guard) = lock.lock() {
+            guard.stop = true;
+            signal.notify_one();
+        }
+    }
+}
+
 pub struct TunnelApp {
     inputs: Inputs,
+    /// Inputs of the last request to the worker.
+    requested: Option<Inputs>,
+    /// Inputs of the result on the screen.
     solved_for: Option<Inputs>,
-    analyzer: Analyzer,
+    worker: Worker,
     result: Result<Computed, String>,
     show_pressure_lines: bool,
 }
@@ -199,9 +281,13 @@ impl TunnelApp {
         let inputs = Inputs::default();
         Self {
             inputs,
+            requested: None,
             solved_for: None,
-            analyzer: Analyzer::default(),
-            result: Err("no result yet".to_owned()),
+            worker: {
+                let ctx = cc.egui_ctx.clone();
+                Worker::new(move || ctx.request_repaint())
+            },
+            result: Err("the first calculation is in progress".to_owned()),
             show_pressure_lines: true,
         }
     }
@@ -360,11 +446,12 @@ impl TunnelApp {
                         }
                     }
                 }
-                ui.label(
-                    RichText::new(format!("Solved in {:.0} ms", done.solve_ms))
-                        .size(11.0)
-                        .color(TEXT_DIM),
-                );
+                let status = if self.solved_for == Some(self.inputs) {
+                    format!("Solved in {:.0} ms", done.solve_ms)
+                } else {
+                    "Calculating...".to_owned()
+                };
+                ui.label(RichText::new(status).size(11.0).color(TEXT_DIM));
             }
             Err(message) => {
                 ui.colored_label(view::PRESSURE, format!("No result: {message}"));
@@ -608,9 +695,15 @@ impl eframe::App for TunnelApp {
 
         // Live update: solve again when an input changes.
         self.inputs = self.inputs.normalized();
-        if self.solved_for != Some(self.inputs) {
-            self.result = self.analyzer.compute(&self.inputs);
-            self.solved_for = Some(self.inputs);
+        // The calculation runs on the worker thread. The last result stays
+        // on the screen until the new result is ready.
+        if self.requested != Some(self.inputs) {
+            self.worker.submit(self.inputs);
+            self.requested = Some(self.inputs);
+        }
+        if let Some((inputs, result)) = self.worker.latest() {
+            self.result = result;
+            self.solved_for = Some(inputs);
         }
 
         egui::CentralPanel::default()
@@ -862,6 +955,38 @@ mod tests {
         assert!(large_separation(
             &stalled.friction.expect("converged result at 19 deg")
         ));
+    }
+
+    #[test]
+    fn the_worker_gives_the_result_for_the_newest_inputs() {
+        let (woke, wake_signal) = mpsc::channel();
+        let worker = Worker::new(move || {
+            let _ = woke.send(());
+        });
+        // Many fast changes, as from a slider that moves.
+        let mut last = inputs();
+        for step in 0..20 {
+            last = Inputs {
+                alpha: 0.2 * f64::from(step),
+                ..inputs()
+            };
+            worker.submit(last);
+        }
+        let limit = std::time::Duration::from_secs(60);
+        let mut calculations = 0;
+        loop {
+            wake_signal.recv_timeout(limit).expect("no result in time");
+            calculations += 1;
+            if let Some((solved, result)) = worker.latest() {
+                if solved == last {
+                    let direct = Analyzer::default().compute(&last).unwrap();
+                    assert!((result.unwrap().solution.cl - direct.solution.cl).abs() < 1e-12);
+                    break;
+                }
+            }
+        }
+        // Requests that were replaced before their start are not calculated.
+        assert!(calculations <= 20);
     }
 
     #[test]

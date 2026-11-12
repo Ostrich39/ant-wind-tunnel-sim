@@ -128,6 +128,11 @@ angle range (target: below 100 ms). Near stall it can take 150 ms to
 350 ms. A condition without a solution takes approximately 400 ms in the
 window.
 
+The calculation runs on a second thread. The window does not wait for
+it: the last result stays on the screen until the new result is ready,
+and only the newest inputs are calculated. Thus a slow calculation
+delays the numbers, but it does not stop the window.
+
 ## Check of the equations against the paper (12 November 2026)
 
 The closure relations and the residual equations in the code were compared
@@ -189,7 +194,7 @@ The solver still contains the one-way calculation (`boundary_layer.rs`,
 |---|---|---|---|
 | Small file size | Below 20 MB | 10.1 MB (Linux release build) | Met on Linux. Not measured on Windows or macOS |
 | Quick results | Below 0.1 s | 2 ms to 3 ms at 160 panels. An automated test applies the limit at 400 panels | Met |
-| Smooth operation | 60 frames per second | Not measured. The test computer has no GPU | Open |
+| Smooth operation | 60 frames per second | Not measured. The test computer has no GPU. The calculation does not stop the window (second thread, automated test) | Open |
 | High-quality render | Sharp at any window size | Lines are vector shapes with anti-aliasing. Checked by eye on one screen capture | Partly checked |
 
 ## Validation status of stage 1
