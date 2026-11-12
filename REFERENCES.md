@@ -38,6 +38,13 @@ Check words:
 | 1.15 | Blasius flat plate solution (θ = 0.664 x/√Re, cf = 0.664/√Re, δ* = 1.72 x/√Re) and Prandtl-Schlichting formula CF = 0.455/(log10 Re)^2.58. Course notes, University of Iowa. https://user.engineering.uiowa.edu/~fluids/posting/Schedule/Turbulent_BL_12-02-2015.pdf | Test values | `crates/solver/tests/boundary_layer.rs` | Checked |
 | 1.16 | Hiemenz stagnation flow, θ = 0.292 √(ν/k). | Test value | `crates/solver/tests/boundary_layer.rs` | Not checked (from memory) |
 
+### Displacement sources (stage 3b)
+
+| # | Source | Used for | Where | Check |
+|---|---|---|---|---|
+| 1.17 | Velocity of a constant-strength source panel. Standard result, for example Katz, J., Plotkin, A. *Low-Speed Aerodynamics*, Cambridge University Press; Hess, J. L., Smith, A. M. O. (1967). | Source panels | `crates/solver/src/panel.rs` | Not checked (from memory). Tests check the equations: flow through a far circle and flow out of the surface |
+| 1.18 | Displacement effect as a surface source with strength d(ue δ*)/ds (Lighthill 1958, transpiration model), as used in XFOIL (item 2.1). | Two-way calculation | `crates/solver/src/coupled.rs` | Not checked (from memory) |
+
 ## 2. Theory planned for later stages
 
 | # | Source | Planned use | Check |

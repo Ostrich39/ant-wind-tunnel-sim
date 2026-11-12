@@ -38,7 +38,9 @@ The project is for personal use and learning. It is not for sale.
 | 1 | Inviscid panel method, NACA 4-digit shapes, validation tests | Done |
 | 2 | Desktop window: airfoil view, pressure plot, live controls for angle and NACA shape | Done |
 | 3a | One-way boundary layer: friction drag, transition, Reynolds number, separation warning | Done |
-| 3b | Two-way (coupled) boundary layer from Drela 1989: lift correction, separation bubbles, stall | Not started |
+| 3b-1 | Source panels for the displacement effect; fast repeated solution of the panel equations | Done |
+| 3b-2 | Two-way calculation by direct iteration (experimental) | Done, but not accurate enough. The program does not use it |
+| 3b-3 | Wake panels and simultaneous solution of the flow and the boundary layer (Drela 1989): lift correction, separation bubbles, stall | Not started |
 | 4 | Shape editor and airfoil file import (.dat) | Not started |
 | 5 | Flow field display (streamlines, pressure colors) | Not started |
 | 6 | Live flow solver for arbitrary shapes (approximate) | Not started |
@@ -109,6 +111,35 @@ The project is for personal use and learning. It is not for sale.
 - Each number in a test must have a source in `REFERENCES.md` or come from
   an exact solution.
 - Each new source goes into `REFERENCES.md` in the same change.
+
+## Result of stage 3b-2 (experimental two-way calculation)
+
+The calculation puts a source on each panel to model the displacement of
+the outer flow by the boundary layer, and repeats the flow and boundary
+layer solutions until the lift is stable.
+
+Measured for the NACA 0012 with a trip strip, Re 6 million, against the
+Ladson data:
+
+| Quantity | One-way (stage 3a) | Two-way (stage 3b-2) |
+|---|---|---|
+| Lift at the same angle, 2° to 11° | 9% to 17% high | 2% to 13% high |
+| Drag difference | −5.4% to +4.1%, angles to 8.3° | −6.2% to +4.8%, angles to 11.2° |
+| Largest angle with a drag value | Approximately 9° | Approximately 11° |
+| Time for one result (200 panels) | 3 ms | Approximately 10 ms |
+
+Why the program does not use it:
+
+- The lift depends on the cut-off station for the sources, which is an
+  arbitrary value. Lift error at 4° and 8° for different cut-off values:
+  90% of chord: +10% and +9%. 95% of chord: +8% and +7%. 98% of chord: +6%
+  and +4%. At 99.5% of chord the iteration does not converge.
+- To select the cut-off value that agrees best with the data is curve
+  fitting. It is not a prediction. The code uses 95%, which was selected
+  before the comparison.
+- The cause is known: the model has no wake, and the direct iteration is
+  not stable near the trailing edge and near separation. Stage 3b-3 removes
+  the cut-off.
 
 ## Open items for stage 3a
 
