@@ -5,8 +5,10 @@
 //! Stage 3b (experimental): two-way calculation with displacement sources.
 
 pub mod boundary_layer;
+pub mod closure;
 pub mod coupled;
 pub mod geometry;
+pub mod ibl;
 pub mod linalg;
 pub mod panel;
 pub mod viscous;
