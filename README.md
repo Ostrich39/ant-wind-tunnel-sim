@@ -17,6 +17,10 @@ A desktop program, written in Rust, to design and analyze airfoils.
 - Stage 3a is complete: a one-way boundary layer calculation that gives
   friction drag, transition positions, and a flow separation warning.
 
+- Stage 3b has started: source panels and an experimental two-way
+  calculation are in the solver. The program does not use the two-way
+  calculation, because it is not accurate enough.
+
 The friction model does not change the pressure. The lift has no friction
 correction and the program does not predict stall. The drag is valid only
 for attached flow. For the NACA 0012 at a Reynolds number of 6 million, the

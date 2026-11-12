@@ -22,6 +22,11 @@ pub struct SurfaceReport {
     pub boundary_layer: SurfaceResult,
     /// Chord position (x/c) of each input station.
     pub x_over_c: Vec<f64>,
+    /// Surface distance of each input station, divided by the chord.
+    pub s: Vec<f64>,
+    /// Panel index of each input station. The first station is the
+    /// stagnation point, which is between two panels.
+    pub panel: Vec<usize>,
     /// Chord position (x/c) where turbulent flow starts, and the cause.
     pub transition: Option<(f64, TransitionCause)>,
     /// Chord position (x/c) of turbulent separation, if it occurs.
@@ -121,6 +126,8 @@ pub fn analyze(
         Ok(SurfaceReport {
             boundary_layer,
             x_over_c: x,
+            s,
+            panel,
             transition,
             separation,
             transition_panel,
