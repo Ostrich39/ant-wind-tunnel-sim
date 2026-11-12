@@ -4,7 +4,9 @@ use crate::view::{self, Mapper};
 use eframe::egui::{
     self, vec2, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Shape, Stroke, Ui,
 };
-use solver::{naca4, solve, Airfoil, Solution};
+use solver::boundary_layer::TransitionCause;
+use solver::viscous::{SurfaceReport, DRAG_REFERENCE_X};
+use solver::{analyze, naca4, solve, Airfoil, Solution, ViscousResult};
 
 const BACKGROUND: Color32 = Color32::from_rgb(15, 19, 24);
 const PANEL: Color32 = Color32::from_rgb(22, 27, 34);
@@ -15,6 +17,8 @@ const TEXT: Color32 = Color32::from_rgb(226, 232, 238);
 const BODY_FILL: Color32 = Color32::from_rgb(52, 62, 74);
 const BODY_LINE: Color32 = Color32::from_rgb(214, 222, 230);
 const LOWER_LINE: Color32 = Color32::from_rgb(150, 160, 172);
+const TRANSITION: Color32 = Color32::from_rgb(123, 216, 143);
+const SEPARATION: Color32 = Color32::from_rgb(255, 209, 102);
 
 /// The inputs that set the result. A new solution is necessary only when
 /// these values change.
@@ -30,6 +34,27 @@ pub struct Inputs {
     pub alpha: f64,
     /// Number of panels (even).
     pub panels: usize,
+    /// Reynolds number for the chord.
+    pub reynolds: f64,
+    /// If true, turbulent flow starts at `trip_x` or before it.
+    pub trip: bool,
+    /// Forced transition position, x/c.
+    pub trip_x: f64,
+}
+
+impl Default for Inputs {
+    fn default() -> Self {
+        Self {
+            camber: 2,
+            camber_pos: 4,
+            thickness: 12,
+            alpha: 4.0,
+            panels: 160,
+            reynolds: 3.0e6,
+            trip: false,
+            trip_x: 0.05,
+        }
+    }
 }
 
 impl Inputs {
@@ -49,6 +74,16 @@ impl Inputs {
         } else {
             0.0
         };
+        self.reynolds = if self.reynolds.is_finite() {
+            self.reynolds.clamp(1.0e5, 1.0e7)
+        } else {
+            3.0e6
+        };
+        self.trip_x = if self.trip_x.is_finite() {
+            self.trip_x.clamp(0.01, 0.9)
+        } else {
+            0.05
+        };
         self
     }
 
@@ -60,6 +95,8 @@ impl Inputs {
 pub struct Computed {
     pub foil: Airfoil,
     pub solution: Solution,
+    /// Friction result. An error text if the calculation is not possible.
+    pub viscous: Result<ViscousResult, String>,
     pub solve_ms: f64,
 }
 
@@ -67,9 +104,12 @@ pub fn compute(inputs: &Inputs) -> Result<Computed, String> {
     let start = std::time::Instant::now();
     let foil = naca4(&inputs.code(), inputs.panels)?;
     let solution = solve(&foil, inputs.alpha)?;
+    let trip = inputs.trip.then_some(inputs.trip_x);
+    let viscous = analyze(&foil, &solution, inputs.reynolds, trip);
     Ok(Computed {
         foil,
         solution,
+        viscous,
         solve_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
@@ -89,13 +129,7 @@ impl TunnelApp {
         visuals.override_text_color = Some(TEXT);
         cc.egui_ctx.set_visuals(visuals);
 
-        let inputs = Inputs {
-            camber: 2,
-            camber_pos: 4,
-            thickness: 12,
-            alpha: 4.0,
-            panels: 160,
-        };
+        let inputs = Inputs::default();
         Self {
             inputs,
             solved_for: Some(inputs),
@@ -118,7 +152,7 @@ impl TunnelApp {
                 .monospace()
                 .color(TEXT),
         );
-        ui.add_space(14.0);
+        ui.add_space(12.0);
 
         section(ui, "FLOW");
         ui.add(
@@ -128,7 +162,21 @@ impl TunnelApp {
                 .suffix("°")
                 .text("Angle of attack"),
         );
-        ui.add_space(14.0);
+        ui.add(
+            egui::Slider::new(&mut self.inputs.reynolds, 1.0e5..=1.0e7)
+                .logarithmic(true)
+                .custom_formatter(|v, _| format!("{:.2} M", v / 1.0e6))
+                .custom_parser(|text| {
+                    text.trim()
+                        .trim_end_matches('M')
+                        .trim()
+                        .parse::<f64>()
+                        .ok()
+                        .map(|v| v * 1.0e6)
+                })
+                .text("Reynolds number"),
+        );
+        ui.add_space(12.0);
 
         section(ui, "SHAPE");
         ui.add(
@@ -151,7 +199,17 @@ impl TunnelApp {
                 .custom_formatter(|v, _| format!("{:.0} %", v * 10.0))
                 .text("Camber position"),
         );
-        ui.add_space(14.0);
+        ui.add_space(12.0);
+
+        section(ui, "BOUNDARY LAYER");
+        ui.checkbox(&mut self.inputs.trip, "Force transition (trip strip)");
+        ui.add_enabled(
+            self.inputs.trip,
+            egui::Slider::new(&mut self.inputs.trip_x, 0.01..=0.5)
+                .custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
+                .text("Trip position"),
+        );
+        ui.add_space(12.0);
 
         section(ui, "SOLVER");
         ui.add(
@@ -160,18 +218,64 @@ impl TunnelApp {
                 .text("Panels"),
         );
         ui.checkbox(&mut self.show_pressure_lines, "Show pressure lines");
-        ui.add_space(14.0);
+        ui.add_space(12.0);
 
         section(ui, "RESULTS");
         match &self.result {
             Ok(done) => {
-                readout(ui, "Lift coefficient", &format!("{:+.4}", done.solution.cl));
+                readout(
+                    ui,
+                    "Lift coefficient (no friction)",
+                    &format!("{:+.4}", done.solution.cl),
+                );
+                match &done.viscous {
+                    Ok(viscous) => {
+                        match viscous.cd {
+                            Some(cd) => {
+                                readout(ui, "Drag coefficient", &format!("{cd:.5}"));
+                                readout(
+                                    ui,
+                                    "Lift / drag",
+                                    &format!("{:.1}", done.solution.cl / cd),
+                                );
+                            }
+                            None => {
+                                ui.label(
+                                    RichText::new("Drag coefficient").size(12.0).color(TEXT_DIM),
+                                );
+                                ui.label(RichText::new("No value").size(20.0).color(SEPARATION));
+                                ui.label(
+                                    RichText::new(separation_text(viscous))
+                                        .size(12.0)
+                                        .color(SEPARATION),
+                                );
+                            }
+                        }
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("Transition position")
+                                .size(12.0)
+                                .color(TEXT_DIM),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "Upper {}   Lower {}",
+                                transition_text(&viscous.upper),
+                                transition_text(&viscous.lower)
+                            ))
+                            .size(13.0)
+                            .color(TEXT),
+                        );
+                    }
+                    Err(message) => {
+                        ui.colored_label(SEPARATION, format!("No friction result: {message}"));
+                    }
+                }
                 readout(
                     ui,
                     "Moment coefficient (c/4)",
                     &format!("{:+.4}", done.solution.cm),
                 );
-                ui.add_space(6.0);
                 ui.label(
                     RichText::new(format!("Solved in {:.1} ms", done.solve_ms))
                         .size(11.0)
@@ -183,17 +287,17 @@ impl TunnelApp {
             }
         }
 
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-            ui.add_space(10.0);
-            ui.label(
-                RichText::new(
-                    "Model without friction. It gives no drag value \
-                     and it does not predict stall.",
-                )
-                .size(11.0)
-                .color(TEXT_DIM),
-            );
-        });
+        ui.add_space(12.0);
+        ui.label(
+            RichText::new(
+                "The friction model does not change the pressure. The lift has no \
+                 friction correction. The drag is valid only for attached flow. \
+                 The drag is not yet compared with wind tunnel data.",
+            )
+            .size(11.0)
+            .color(TEXT_DIM),
+        );
+        ui.add_space(10.0);
     }
 
     fn airfoil_view(&self, ui: &mut Ui, size: egui::Vec2) {
@@ -265,6 +369,37 @@ impl TunnelApp {
             screen[..n].to_vec(),
             Stroke::new(1.5, BODY_LINE),
         ));
+
+        // Boundary layer markers: transition (T) and separation (S).
+        if let Ok(viscous) = &done.viscous {
+            let marker = |panel: usize, text: &str, color: Color32| {
+                let (a, b) = (world[panel], world[panel + 1]);
+                let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+                let len = dx.hypot(dy);
+                // Outward normal in screen coordinates (screen y points down).
+                let normal = vec2((-dy / len) as f32, -(dx / len) as f32);
+                let base = map.to_screen(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1]));
+                painter.line_segment([base, base + normal * 14.0], Stroke::new(2.0, color));
+                painter.circle_filled(base, 3.0, color);
+                painter.text(
+                    base + normal * 24.0,
+                    Align2::CENTER_CENTER,
+                    text,
+                    FontId::proportional(13.0),
+                    color,
+                );
+            };
+            for surface in [&viscous.upper, &viscous.lower] {
+                if let Some(panel) = surface.transition_panel {
+                    marker(panel, "T", TRANSITION);
+                }
+                if let (Some(panel), Some(x)) = (surface.separation_panel, surface.separation) {
+                    if x < DRAG_REFERENCE_X {
+                        marker(panel, "S", SEPARATION);
+                    }
+                }
+            }
+        }
     }
 
     fn pressure_plot(&self, ui: &mut Ui, size: egui::Vec2) {
@@ -376,7 +511,11 @@ impl eframe::App for TunnelApp {
             .exact_size(300.0)
             .resizable(false)
             .show(ui, |ui| {
-                self.controls(ui);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        self.controls(ui);
+                    });
             });
 
         // Live update: solve again when an input changes.
@@ -414,12 +553,44 @@ fn label(painter: &egui::Painter, pos: Pos2, anchor: Align2, text: &str, color: 
     painter.text(pos, anchor, text, FontId::proportional(12.0), color);
 }
 
+/// Text for the transition position of one surface.
+fn transition_text(surface: &SurfaceReport) -> String {
+    match surface.transition {
+        Some((x, cause)) => {
+            let cause = match cause {
+                TransitionCause::Michel => "natural",
+                TransitionCause::LaminarSeparation => "laminar separation",
+                TransitionCause::Forced => "forced",
+            };
+            format!("{:.0} % ({cause})", x * 100.0)
+        }
+        None => "none".to_owned(),
+    }
+}
+
+/// Text that tells where the flow separates.
+fn separation_text(viscous: &ViscousResult) -> String {
+    let mut parts = Vec::new();
+    for (name, surface) in [("upper", &viscous.upper), ("lower", &viscous.lower)] {
+        if let Some(x) = surface.separation.filter(|x| *x < DRAG_REFERENCE_X) {
+            parts.push(format!("{:.0} % of chord on the {name} surface", x * 100.0));
+        }
+    }
+    if parts.is_empty() {
+        "The boundary layer calculation did not reach the trailing edge.".to_owned()
+    } else {
+        format!("Flow separation at {}.", parts.join(" and at "))
+    }
+}
+
 fn legend(painter: &egui::Painter, rect: Rect) {
     let x = rect.right() - 250.0;
     let y = rect.top() + 30.0;
     for (row, (name, color)) in [
         ("Suction (below free-stream pressure)", view::SUCTION),
         ("Pressure (above free-stream pressure)", view::PRESSURE),
+        ("T: start of turbulent flow", TRANSITION),
+        ("S: flow separation", SEPARATION),
     ]
     .iter()
     .enumerate()
@@ -444,13 +615,7 @@ mod tests {
     use super::*;
 
     fn inputs() -> Inputs {
-        Inputs {
-            camber: 2,
-            camber_pos: 4,
-            thickness: 12,
-            alpha: 4.0,
-            panels: 160,
-        }
+        Inputs::default()
     }
 
     #[test]
@@ -477,6 +642,7 @@ mod tests {
                         thickness,
                         alpha: 3.0,
                         panels: 60,
+                        ..inputs()
                     };
                     let done = compute(&raw.normalized());
                     assert!(done.is_ok(), "{raw:?}: {:?}", done.err());
@@ -493,11 +659,16 @@ mod tests {
             thickness: 0,
             alpha: f64::NAN,
             panels: 41,
+            reynolds: f64::NAN,
+            trip: true,
+            trip_x: 7.0,
         };
         let fixed = bad.normalized();
         assert_eq!((fixed.camber, fixed.camber_pos, fixed.thickness), (9, 1, 1));
         assert_eq!(fixed.panels, 40);
         assert_eq!(fixed.alpha, 0.0);
+        assert_eq!(fixed.reynolds, 3.0e6);
+        assert_eq!(fixed.trip_x, 0.9);
         let flat = Inputs {
             camber: 0,
             camber_pos: 7,
@@ -505,6 +676,35 @@ mod tests {
         }
         .normalized();
         assert_eq!(flat.camber_pos, 0);
+    }
+
+    #[test]
+    fn friction_result_exists_for_the_start_values() {
+        let done = compute(&inputs()).unwrap();
+        let viscous = done.viscous.unwrap();
+        assert!(viscous.cd.unwrap() > 0.0);
+        assert!(transition_text(&viscous.upper).contains("natural"));
+        // A trip strip moves the transition to the set position.
+        let tripped = compute(&Inputs {
+            trip: true,
+            trip_x: 0.05,
+            ..inputs()
+        })
+        .unwrap();
+        assert!(transition_text(&tripped.viscous.unwrap().lower).contains("forced"));
+    }
+
+    #[test]
+    fn separation_message_names_the_surface() {
+        let done = compute(&Inputs {
+            alpha: 14.0,
+            reynolds: 1.0e6,
+            ..inputs()
+        })
+        .unwrap();
+        let viscous = done.viscous.unwrap();
+        assert!(viscous.cd.is_none());
+        assert!(separation_text(&viscous).contains("upper surface"));
     }
 
     #[test]

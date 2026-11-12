@@ -14,7 +14,12 @@ A desktop program, written in Rust, to design and analyze airfoils.
 - Stage 2 is complete: a desktop window with an airfoil view, a pressure
   plot, and live controls.
 
-The model has no friction. It gives no drag value and it does not predict stall.
+- Stage 3a is complete: a one-way boundary layer calculation that gives
+  friction drag, transition positions, and a flow separation warning.
+
+The friction model does not change the pressure. The lift has no friction
+correction and the program does not predict stall. The drag is valid only
+for attached flow and is not yet compared with wind tunnel data.
 
 ## Use
 

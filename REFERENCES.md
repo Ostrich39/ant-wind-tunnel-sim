@@ -21,14 +21,31 @@ Check words:
 | 1.3 | Abbott, I. H., von Doenhoff, A. E. *Theory of Wing Sections: Including a Summary of Airfoil Data*. Dover, 1959. ISBN 9780486605869. | NACA 4-digit equations (second source); wind tunnel data for later validation | `crates/solver/src/geometry.rs` | Checked |
 | 1.4 | Joukowski transformation and Kutta-Joukowski theorem. Standard theory, for example Anderson, J. D. *Fundamentals of Aerodynamics*, McGraw-Hill. | Exact lift solution for the validation tests; lift from circulation | `crates/solver/tests/validation.rs`, `panel.rs` | Not checked |
 
+### Boundary layer (stage 3a)
+
+| # | Source | Used for | Where | Check |
+|---|---|---|---|---|
+| 1.5 | Thwaites, B. (1949). Approximate calculation of the laminar boundary layer. *Aeronautical Quarterly* 1, 245. | Laminar boundary layer method | `crates/solver/src/boundary_layer.rs` | Checked (citation). Paper not read |
+| 1.6 | Thwaites correlations H(λ) and l(λ), as given in: Nordin, A., Lim, C. W. Thwaites' method in laminar boundary layer. *Jurnal Teknologi*, UTM. https://journals.utm.my/jurnalteknologi/article/download/995/965/1005 | Correlation constants | `boundary_layer.rs` | Checked, with one difference: that paper prints 1.420 where this code uses 1.402. The value 1.402 makes the slope continuous at λ = 0 (a test checks this) and agrees with item 1.8 from memory |
+| 1.7 | Sankar, L. *Boundary Layer Analyses*, AE 3903/4903 Airfoil Design, Georgia Institute of Technology (course slides). https://www.slideshare.net/slideshow/boundarylayeranalysis/4360255 | Michel criterion, Head's method inverse relation, Ludwieg-Tillmann law, separation at λ = −0.09 | `boundary_layer.rs` | Checked |
+| 1.8 | Moran, J. *An Introduction to Theoretical and Computational Aerodynamics*. Dover, 2003. ISBN 9780486428796. Chapter 7. | Thwaites, Head, transition, drag method (the same set of methods) | `boundary_layer.rs`, `viscous.rs` | Checked (book and chapter list). Equations from memory: Head's entrainment function 0.0306 (H1 − 3)^−0.6169 and the Squire-Young exponent (H + 5)/2 |
+| 1.9 | Head, M. R. (1958). Entrainment in the turbulent boundary layer. ARC R&M 3152. | Turbulent boundary layer method | `boundary_layer.rs` | Not checked |
+| 1.10 | Ludwieg, H., Tillmann, W. (1949). Skin friction law for turbulent boundary layers. | Turbulent skin friction | `boundary_layer.rs` | Checked (authors and year only) |
+| 1.11 | Cebeci, T., Mosinskis, G. J., Smith, A. M. O. Calculation of separation points in incompressible turbulent flows. *Journal of Aircraft*. https://typeset.io/pdf/calculation-of-separation-points-in-incompressible-turbulent-4llvp2elsu.pdf | Shape factor at turbulent separation, 1.8 to 2.4 | `boundary_layer.rs` | Checked (statement). Author list and year not checked |
+| 1.12 | Michel, R. (1951). ONERA report. | Transition criterion | `boundary_layer.rs` | Not checked. The formula is from item 1.7 |
+| 1.13 | Squire, H. B., Young, A. D. (1938). The calculation of the profile drag of aerofoils. ARC R&M 1838. | Drag formula | `viscous.rs` | Checked (authors and year). Report number not checked |
+| 1.14 | Stern, F. *Momentum Integral Methods*, course notes, University of Iowa. https://stern.lab.uiowa.edu/sites/stern.lab.uiowa.edu/files/2025-11/Chapter-7.4-Momentum-Integral-Methods.pdf | Test values: Howarth flow closed form, separation at 0.123, exact 0.1199 | `crates/solver/tests/boundary_layer.rs` | Checked |
+| 1.15 | Blasius flat plate solution (θ = 0.664 x/√Re, cf = 0.664/√Re, δ* = 1.72 x/√Re) and Prandtl-Schlichting formula CF = 0.455/(log10 Re)^2.58. Course notes, University of Iowa. https://user.engineering.uiowa.edu/~fluids/posting/Schedule/Turbulent_BL_12-02-2015.pdf | Test values | `crates/solver/tests/boundary_layer.rs` | Checked |
+| 1.16 | Hiemenz stagnation flow, θ = 0.292 √(ν/k). | Test value | `crates/solver/tests/boundary_layer.rs` | Not checked (from memory) |
+
 ## 2. Theory planned for later stages
 
 | # | Source | Planned use | Check |
 |---|---|---|---|
-| 2.1 | Drela, M. (1989). XFOIL: An Analysis and Design System for Low Reynolds Number Airfoils. In: Mueller, T. J. (ed.), *Low Reynolds Number Aerodynamics*, Lecture Notes in Engineering 54, Springer. https://doi.org/10.1007/978-3-642-84010-4_1 | Stage 3: boundary layer, transition, coupling with the panel method | Checked |
-| 2.2 | Drela, M., Giles, M. B. (1987). Viscous-Inviscid Analysis of Transonic and Low Reynolds Number Airfoils. *AIAA Journal* 25(10), 1347-1355. | Stage 3: boundary layer equations | Checked |
-| 2.3 | Drela, M. (1989). An Integral Boundary Layer Formulation for Blunt Trailing Edges. AIAA paper. | Stage 3: blunt trailing edges | Checked, but the paper number is not certain: one source gives AIAA-89-2166, a different source gives AIAA-89-2200 |
-| 2.4 | Fidkowski, K. mfoil: coupled integral boundary layer and vortex-panel solver (Matlab). https://websites.umich.edu/~kfid/codes/mfoil/mfoil.pdf | Stage 3: modern description of the XFOIL-type method | Checked |
+| 2.1 | Drela, M. (1989). XFOIL: An Analysis and Design System for Low Reynolds Number Airfoils. In: Mueller, T. J. (ed.), *Low Reynolds Number Aerodynamics*, Lecture Notes in Engineering 54, Springer. https://doi.org/10.1007/978-3-642-84010-4_1 | Stage 3b: boundary layer, transition, coupling with the panel method | Checked |
+| 2.2 | Drela, M., Giles, M. B. (1987). Viscous-Inviscid Analysis of Transonic and Low Reynolds Number Airfoils. *AIAA Journal* 25(10), 1347-1355. | Stage 3b: boundary layer equations | Checked |
+| 2.3 | Drela, M. (1989). An Integral Boundary Layer Formulation for Blunt Trailing Edges. AIAA paper. | Stage 3b: blunt trailing edges | Checked, but the paper number is not certain: one source gives AIAA-89-2166, a different source gives AIAA-89-2200 |
+| 2.4 | Fidkowski, K. mfoil: coupled integral boundary layer and vortex-panel solver (Matlab). https://websites.umich.edu/~kfid/codes/mfoil/mfoil.pdf | Stage 3b: modern description of the XFOIL-type method | Checked |
 | 2.5 | Griebel, M., Dornseifer, T., Neunhoeffer, T. (1998). *Numerical Simulation in Fluid Dynamics: A Practical Introduction*. SIAM. | Stage 6: Navier-Stokes solver on a staggered grid | Checked |
 | 2.6 | Succi, S. (2001). *The Lattice Boltzmann Equation for Fluid Dynamics and Beyond*. Oxford University Press. https://doi.org/10.1093/oso/9780198503989.001.0001 | Stage 6: lattice Boltzmann method (alternative) | Checked |
 
@@ -63,6 +80,9 @@ No code from this software is copied into this project.
 |---|---|---|---|
 | 4.1 | Řezníček, T. (2023). *Open source and commercial CFD codes comparison on 2D airfoil analysis*. Bachelor's thesis, Brno University of Technology. https://theses.cz/id/nw0p3h/TomasReznicek_BP_2023.pdf | OpenFOAM and ANSYS Fluent compared with wind tunnel data | Checked |
 
+| 4.2 | NASA Turbulence Modeling Resource. 2D NACA 0012 Airfoil Validation Case. https://tmbwg.github.io/turbmodels/naca0012_val.html | Wind tunnel data for the NACA 0012 at Re = 6 million. Ladson data with a trip strip: `NACA0012_validation/CLCD_Ladson_expdata.dat`. Abbott and von Doenhoff data without a trip strip: `NACA0012_validation/0012.abbottdata.cd.dat` | Checked (page). Data files not read: the test computer could not get them |
+| 4.3 | McCroskey, W. J. (1987). A Critical Assessment of Wind Tunnel Results for the NACA 0012 Airfoil. NASA TM 100019. https://ntrs.nasa.gov/citations/19880002254 | Review of NACA 0012 wind tunnel data | Checked (citation). Report not read |
+
 ## 5. Removed items
 
 - Thick-airfoil lift slope estimate, 2π(1 + 0.77 t). No source was identified,
@@ -72,4 +92,6 @@ No code from this software is copied into this project.
 
 - Confirm item 1.4 (Anderson: edition and section) and the publication year of item 1.1.
 - Resolve the paper number of item 2.3.
-- Select the wind tunnel data set for NACA 0012 validation in stage 3.
+- Get the data files of item 4.2 and add a drag comparison test.
+- Confirm items 1.9, 1.12, 1.16 and the equations from memory in item 1.8.
+- Find a source for the shape factor 1.4 at the start of turbulent flow.
