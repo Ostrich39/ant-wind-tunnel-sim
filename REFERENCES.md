@@ -16,11 +16,10 @@ Check words:
 
 | # | Source | Used for | Where | Check |
 |---|---|---|---|---|
-| 1.1 | Kuethe, A. M., Chow, C.-Y. *Foundations of Aerodynamics*, 5th ed., Wiley, 1998, section 5.10. | Linear-vortex panel method | `crates/solver/src/panel.rs` | Not checked |
-| 1.2 | Jacobs, E. N., Ward, K. E., Pinkerton, R. M. *The Characteristics of 78 Related Airfoil Sections from Tests in the Variable-Density Wind Tunnel*. NACA Report 460, 1933. | NACA 4-digit thickness and camber equations | `crates/solver/src/geometry.rs` | Not checked |
-| 1.3 | Abbott, I. H., von Doenhoff, A. E. *Theory of Wing Sections*. Dover, 1959. | NACA 4-digit equations (second source); wind tunnel data for later validation | `crates/solver/src/geometry.rs` | Not checked |
+| 1.1 | Kuethe, A. M., Chow, C.-Y. *Foundations of Aerodynamics: Bases of Aerodynamic Design*, 5th ed., Wiley, section 5.10, page 156. | Linear-vortex panel method | `crates/solver/src/panel.rs` | Checked (title, edition, section, page). Publication year not checked |
+| 1.2 | Jacobs, E. N., Ward, K. E., Pinkerton, R. M. *The Characteristics of 78 Related Airfoil Sections from Tests in the Variable-Density Wind Tunnel*. NACA Report 460, 1933. https://ntrs.nasa.gov/citations/19930091108 | NACA 4-digit thickness and camber equations | `crates/solver/src/geometry.rs` | Checked |
+| 1.3 | Abbott, I. H., von Doenhoff, A. E. *Theory of Wing Sections: Including a Summary of Airfoil Data*. Dover, 1959. ISBN 9780486605869. | NACA 4-digit equations (second source); wind tunnel data for later validation | `crates/solver/src/geometry.rs` | Checked |
 | 1.4 | Joukowski transformation and Kutta-Joukowski theorem. Standard theory, for example Anderson, J. D. *Fundamentals of Aerodynamics*, McGraw-Hill. | Exact lift solution for the validation tests; lift from circulation | `crates/solver/tests/validation.rs`, `panel.rs` | Not checked |
-| 1.5 | Thick-airfoil lift slope estimate, 2π(1 + 0.77 t). | Approximate check of NACA 0012 lift | `crates/solver/tests/validation.rs` | Source not identified |
 
 ## 2. Theory planned for later stages
 
@@ -31,7 +30,7 @@ Check words:
 | 2.3 | Drela, M. (1989). An Integral Boundary Layer Formulation for Blunt Trailing Edges. AIAA paper. | Stage 3: blunt trailing edges | Checked, but the paper number is not certain: one source gives AIAA-89-2166, a different source gives AIAA-89-2200 |
 | 2.4 | Fidkowski, K. mfoil: coupled integral boundary layer and vortex-panel solver (Matlab). https://websites.umich.edu/~kfid/codes/mfoil/mfoil.pdf | Stage 3: modern description of the XFOIL-type method | Checked |
 | 2.5 | Griebel, M., Dornseifer, T., Neunhoeffer, T. (1998). *Numerical Simulation in Fluid Dynamics: A Practical Introduction*. SIAM. | Stage 6: Navier-Stokes solver on a staggered grid | Checked |
-| 2.6 | Succi, S. (2001). *The Lattice Boltzmann Equation for Fluid Dynamics and Beyond*. Oxford University Press. | Stage 6: lattice Boltzmann method (alternative) | Not checked |
+| 2.6 | Succi, S. (2001). *The Lattice Boltzmann Equation for Fluid Dynamics and Beyond*. Oxford University Press. https://doi.org/10.1093/oso/9780198503989.001.0001 | Stage 6: lattice Boltzmann method (alternative) | Checked |
 
 ## 3. Software
 
@@ -57,9 +56,13 @@ No code from this software is copied into this project.
 |---|---|---|---|
 | 4.1 | Řezníček, T. (2023). *Open source and commercial CFD codes comparison on 2D airfoil analysis*. Bachelor's thesis, Brno University of Technology. https://theses.cz/id/nw0p3h/TomasReznicek_BP_2023.pdf | OpenFOAM and ANSYS Fluent compared with wind tunnel data | Checked |
 
-## 5. Items to complete
+## 5. Removed items
 
-- Confirm each "Not checked" citation (edition, year, section number).
-- Find the source of item 1.5, or replace that test with wind tunnel data.
+- Thick-airfoil lift slope estimate, 2π(1 + 0.77 t). No source was identified,
+  thus the test that used it was removed.
+
+## 6. Items to complete
+
+- Confirm item 1.4 (Anderson: edition and section) and the publication year of item 1.1.
 - Resolve the paper number of item 2.3.
 - Select the wind tunnel data set for NACA 0012 validation in stage 3.

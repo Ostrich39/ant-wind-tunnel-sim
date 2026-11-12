@@ -11,15 +11,17 @@ pub fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
         }
         a.swap(col, pivot);
         b.swap(col, pivot);
-        for row in col + 1..n {
-            let factor = a[row][col] / a[col][col];
+        let (upper, lower) = a.split_at_mut(col + 1);
+        let pivot_row = &upper[col];
+        for (offset, row) in lower.iter_mut().enumerate() {
+            let factor = row[col] / pivot_row[col];
             if factor == 0.0 {
                 continue;
             }
-            for k in col..n {
-                a[row][k] -= factor * a[col][k];
+            for (value, pivot_value) in row[col..].iter_mut().zip(&pivot_row[col..]) {
+                *value -= factor * pivot_value;
             }
-            b[row] -= factor * b[col];
+            b[col + 1 + offset] -= factor * b[col];
         }
     }
     let mut x = vec![0.0; n];
@@ -37,5 +39,25 @@ mod tests {
         let a = vec![vec![2.0, 1.0], vec![1.0, 3.0]];
         let x = super::solve(a, vec![3.0, 5.0]).unwrap();
         assert!((x[0] - 0.8).abs() < 1e-12 && (x[1] - 1.4).abs() < 1e-12);
+    }
+
+    #[test]
+    fn needs_row_exchange() {
+        // The first pivot is zero, thus the solver must exchange rows.
+        let a = vec![
+            vec![0.0, 2.0, 1.0],
+            vec![1.0, 1.0, 1.0],
+            vec![2.0, 0.0, 3.0],
+        ];
+        let x = super::solve(a, vec![7.0, 6.0, 11.0]).unwrap();
+        for (value, expected) in x.iter().zip([1.0, 2.0, 3.0]) {
+            assert!((value - expected).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn singular_matrix_gives_none() {
+        let a = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
+        assert!(super::solve(a, vec![1.0, 2.0]).is_none());
     }
 }

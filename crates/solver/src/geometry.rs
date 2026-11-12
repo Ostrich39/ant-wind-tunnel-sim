@@ -18,10 +18,16 @@ impl Airfoil {
         self.x_max() - self.x_min()
     }
     pub fn x_min(&self) -> f64 {
-        self.points.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min)
+        self.points
+            .iter()
+            .map(|p| p[0])
+            .fold(f64::INFINITY, f64::min)
     }
     pub fn x_max(&self) -> f64 {
-        self.points.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max)
+        self.points
+            .iter()
+            .map(|p| p[0])
+            .fold(f64::NEG_INFINITY, f64::max)
     }
 }
 
@@ -32,7 +38,7 @@ pub fn naca4(code: &str, n_panels: usize) -> Result<Airfoil, String> {
     if code.len() != 4 || digits.len() != 4 {
         return Err(format!("'{code}' is not a 4-digit NACA code"));
     }
-    if n_panels < 10 || n_panels % 2 != 0 {
+    if n_panels < 10 || !n_panels.is_multiple_of(2) {
         return Err("n_panels must be an even number, 10 or more".into());
     }
     let m = digits[0] as f64 / 100.0; // maximum camber
@@ -56,10 +62,16 @@ pub fn naca4(code: &str, n_panels: usize) -> Result<Airfoil, String> {
         let (yc, dyc) = if m == 0.0 {
             (0.0, 0.0)
         } else if x < p {
-            (m / (p * p) * (2.0 * p * x - x * x), 2.0 * m / (p * p) * (p - x))
+            (
+                m / (p * p) * (2.0 * p * x - x * x),
+                2.0 * m / (p * p) * (p - x),
+            )
         } else {
             let q = (1.0 - p) * (1.0 - p);
-            (m / q * (1.0 - 2.0 * p + 2.0 * p * x - x * x), 2.0 * m / q * (p - x))
+            (
+                m / q * (1.0 - 2.0 * p + 2.0 * p * x - x * x),
+                2.0 * m / q * (p - x),
+            )
         };
         let th = dyc.atan();
         (
@@ -80,7 +92,10 @@ pub fn naca4(code: &str, n_panels: usize) -> Result<Airfoil, String> {
     let te = [1.0, 0.0];
     points[0] = te;
     *points.last_mut().unwrap() = te;
-    Ok(Airfoil { name: format!("NACA {code}"), points })
+    Ok(Airfoil {
+        name: format!("NACA {code}"),
+        points,
+    })
 }
 
 /// Joukowski airfoil. This shape has an exact mathematical solution,
@@ -102,5 +117,12 @@ pub fn joukowski(eps: f64, delta: f64, n_panels: usize) -> (Airfoil, f64, f64) {
     }
     points[0] = [2.0, 0.0];
     points[n_panels] = [2.0, 0.0];
-    (Airfoil { name: format!("Joukowski eps={eps} delta={delta}"), points }, a, beta)
+    (
+        Airfoil {
+            name: format!("Joukowski eps={eps} delta={delta}"),
+            points,
+        },
+        a,
+        beta,
+    )
 }

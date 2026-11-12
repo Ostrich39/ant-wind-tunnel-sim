@@ -47,6 +47,24 @@ The project is for personal use and learning. It is not for sale.
 - Lift values are too high compared with wind tunnel data, and the solver
   cannot predict stall. Stage 3 corrects this.
 
+## Validation status of stage 1
+
+| Quantity | Compared with | Result |
+|---|---|---|
+| Lift | Exact Joukowski solution | Error 0.01% (symmetric, 200 panels); 0.6% to 1.3% (cambered, 400 panels) |
+| Surface pressure, front 90% of chord | Exact Joukowski solution | Largest error 0.04 in pressure coefficient (400 panels) |
+| Surface pressure, last 10% of chord | Exact Joukowski solution | Not validated. The error is large at the cusp trailing edge of the Joukowski shape |
+| NACA 4-digit shapes | No exact solution is available | Shape checked against the defining equation. Flow results checked only for internal consistency |
+| Wind tunnel data | Not compared | Stage 3 |
+
+## Rules for changes
+
+- Each change must pass `cargo fmt --check`, `cargo clippy` with no
+  warnings, and `cargo test`. GitHub runs these checks automatically.
+- Each number in a test must have a source in `REFERENCES.md` or come from
+  an exact solution.
+- Each new source goes into `REFERENCES.md` in the same change.
+
 ## Open decisions
 
 - Accuracy target against wind tunnel data (for example, lift within 5%).

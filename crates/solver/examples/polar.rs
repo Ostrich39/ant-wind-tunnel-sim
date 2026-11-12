@@ -19,7 +19,10 @@ fn main() {
         let s = solve(&foil, a as f64).expect("solve failed");
         println!(
             "{:>7} {:>9.4} {:>9.5} {:>9.4}   ({:.2} ms)",
-            a, s.cl, s.cd, s.cm,
+            a,
+            s.cl,
+            s.cd,
+            s.cm,
             t.elapsed().as_secs_f64() * 1000.0
         );
     }

@@ -15,8 +15,11 @@ use std::f64::consts::PI;
 
 #[derive(Debug, Clone)]
 pub struct Solution {
-    /// Lift coefficient.
+    /// Lift coefficient, from the total circulation (Kutta-Joukowski theorem).
     pub cl: f64,
+    /// Lift coefficient, from the sum of the panel pressures. This is a
+    /// second, less accurate calculation. Use it to check `cl`.
+    pub cl_pressure: f64,
     /// Pressure drag coefficient. The theory value for inviscid flow is 0,
     /// thus this value shows the numerical error.
     pub cd: f64,
@@ -36,6 +39,26 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
     if m < 10 {
         return Err("the airfoil must have 10 panels or more".into());
     }
+    if !alpha_deg.is_finite() {
+        return Err("the angle of attack must be a finite number".into());
+    }
+    if pts.iter().any(|p| !p[0].is_finite() || !p[1].is_finite()) {
+        return Err("the airfoil has a coordinate that is not a finite number".into());
+    }
+    let (first, last) = (pts[0], pts[m]);
+    if (first[0] - last[0]).hypot(first[1] - last[1]) > 1e-9 {
+        return Err("the first point and the last point must be the same point".into());
+    }
+    // Shoelace formula: a negative area means clockwise point order.
+    let area: f64 = (0..m)
+        .map(|j| pts[j][0] * pts[j + 1][1] - pts[j + 1][0] * pts[j][1])
+        .sum::<f64>()
+        * 0.5;
+    if area >= 0.0 {
+        return Err("the points must be in clockwise order \
+                    (trailing edge, lower surface, leading edge, upper surface)"
+            .into());
+    }
     let alpha = alpha_deg.to_radians();
 
     let mut mid = Vec::with_capacity(m);
@@ -47,7 +70,10 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
         if s < 1e-12 {
             return Err(format!("panel {j} has zero length"));
         }
-        mid.push([0.5 * (pts[j][0] + pts[j + 1][0]), 0.5 * (pts[j][1] + pts[j + 1][1])]);
+        mid.push([
+            0.5 * (pts[j][0] + pts[j + 1][0]),
+            0.5 * (pts[j][1] + pts[j + 1][1]),
+        ]);
         len.push(s);
         theta.push(dy.atan2(dx));
     }
@@ -100,8 +126,8 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
     let mut cp = Vec::with_capacity(m);
     let mut speed = Vec::with_capacity(m);
     for i in 0..m {
-        let v = (theta[i] - alpha).cos()
-            + at[i].iter().zip(&gamma).map(|(a, g)| a * g).sum::<f64>();
+        let v =
+            (theta[i] - alpha).cos() + at[i].iter().zip(&gamma).map(|(a, g)| a * g).sum::<f64>();
         let cpi = 1.0 - v * v;
         // Pressure pushes on the surface, opposite to the outward normal.
         let (nx, ny) = (-theta[i].sin(), theta[i].cos());
@@ -115,9 +141,12 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
     let (sa, ca) = alpha.sin_cos();
     // Lift from the total circulation (Kutta-Joukowski theorem). This is
     // more accurate than the sum of the panel pressures.
-    let circulation: f64 = (0..m).map(|j| PI * (gamma[j] + gamma[j + 1]) * len[j]).sum();
+    let circulation: f64 = (0..m)
+        .map(|j| PI * (gamma[j] + gamma[j + 1]) * len[j])
+        .sum();
     Ok(Solution {
         cl: 2.0 * circulation / chord,
+        cl_pressure: (fy * ca - fx * sa) / chord,
         cd: (fx * ca + fy * sa) / chord,
         cm: -mz / (chord * chord),
         mid,
