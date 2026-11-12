@@ -17,7 +17,7 @@ The project is for personal use and learning. It is not for sale.
 | Goal | Target |
 |---|---|
 | High-quality render | Sharp lines and smooth color fields at any window size, drawn on the GPU |
-| Small file size | Desktop program below 20 MB |
+| Small file size | Desktop program below 35 MB (changed from 20 MB on 12 November 2026) |
 | Smooth operation | 60 frames per second while the user moves or edits a shape |
 | Quick results | New results in less than 0.1 second after each change |
 
@@ -192,7 +192,7 @@ The solver still contains the one-way calculation (`boundary_layer.rs`,
 
 | Goal | Target | Measured | Status |
 |---|---|---|---|
-| Small file size | Below 20 MB | 10.1 MB (Linux release build) | Met on Linux. Not measured on Windows or macOS |
+| Small file size | Below 35 MB | 10.2 MB (Linux release build) | Met on Linux. Not measured on Windows or macOS |
 | Quick results | Below 0.1 s | 2 ms to 3 ms at 160 panels. An automated test applies the limit at 400 panels | Met |
 | Smooth operation | 60 frames per second | Not measured. The test computer has no GPU. The calculation does not stop the window (second thread, automated test) | Open |
 | High-quality render | Sharp at any window size | Lines are vector shapes with anti-aliasing. Checked by eye on one screen capture | Partly checked |

@@ -2,7 +2,7 @@
 resolver = "2"
 members = ["crates/solver", "crates/app"]
 
-# Small, fast release builds (goal: program below 20 MB).
+# Small, fast release builds (goal: program below 35 MB).
 [profile.release]
 opt-level = 3
 lto = true
