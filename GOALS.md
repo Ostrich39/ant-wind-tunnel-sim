@@ -91,7 +91,6 @@ the papers (REFERENCES.md, items 2.1, 2.2, 2.4).
 | Trip strip is effective only if the momentum-thickness Reynolds number is 200 or more | 200 | Assumption. No source is recorded |
 | Trip strip position for the Ladson comparison | 5% of chord | Assumption. The position is not in the data file |
 | Panels at the trailing edge | Approximately 1% of chord (120 panels) | Smaller panels made the calculation unstable |
-| Closure constants that the paper text did not show clearly | See REFERENCES.md, item 2.4 | Completed from memory of the published method. The tests support them, but each one must be checked against the paper |
 
 ## Validation status of stage 3b-3
 
@@ -99,9 +98,9 @@ NACA 0012, Reynolds number 6 million, 120 panels.
 
 | Quantity | Compared with | Result |
 |---|---|---|
-| Lift with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | Largest difference 8.3% (at 2°). At 4° and above the model is 3% to 5% high. Stage 3a was 9% to 17% high |
-| Drag with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | −8.2% to +6.6%. The scatter between the three data sets is approximately 4% |
-| Drag with free transition, N = 9 (18 points) | Abbott and von Doenhoff data (digitized) | −17.2% to +1.7%. Most points are 9% to 14% low |
+| Lift with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | Largest difference 8.2% (at 2°). At 4° and above the model is 0.5% to 5% high. Stage 3a was 9% to 17% high |
+| Drag with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | −8.7% to +5.1%. The scatter between the three data sets is approximately 4% |
+| Drag with free transition, N = 9 (18 points) | Abbott and von Doenhoff data (digitized) | −17.7% to +0.8%. Most points are 10% to 15% low |
 | Effect of N on drag at 0°, free transition | Abbott data value 0.0059 | N = 9: 0.0049. N = 7: 0.0053. N = 5: 0.0058. N = 3: 0.0064 |
 | Angles above 14.3° | Ladson data continue to 19°, with stall at approximately 17° | Not validated. The model has no reliable result here |
 | Panel count 120 and 200 | Same case | Lift changes 0.1%, drag changes 1.3% |
@@ -113,6 +112,29 @@ NACA 0012, Reynolds number 6 million, 120 panels.
 
 Speed: one solution takes 30 ms to 60 ms for 120 panels (target: below
 100 ms). A condition without a solution takes 100 ms to 200 ms.
+
+## Check of the equations against the paper (12 November 2026)
+
+The closure relations and the residual equations in the code were compared
+with the pages of the paper (REFERENCES.md, item 2.4: equations 5 to 13, 17,
+and 45 to 79, and Table 2).
+
+| Item | Result |
+|---|---|
+| Five details that were first completed from memory (turbulent H*, tanh argument in the skin friction, outer dissipation term, factor 2δ in the shear lag equation, constant G_B in the slip velocity) | All five agree with the paper |
+| All other closure relations and all constants of Table 2 | Agree with the paper |
+| Exponent limit in the turbulent skin friction (equation 58) | Was different (hard limit). Corrected to the smooth limit of the paper. No change in the test results |
+| Extra amplification term (equation 76) | Was not in the code. Added. No change in the test results |
+| Wake dissipation (equation 66) | The code had a factor of 2 from memory. The paper has no such factor. Corrected to the paper. Drag changed by 0.5% to 1.6%, lift by less than 0.5% |
+
+Parts of the method that are different from the paper on purpose:
+
+| Part | Paper | This program | Cause |
+|---|---|---|---|
+| Transition (equations 16 to 19) | At a position between two stations | At a station | The first version of the paper's method in this program made convergence worse. This is the work of stage 3b-4 |
+| First wake station (equation 14) | Sum of the two boundary layers at the trailing edge point | Wake equations from the last airfoil stations to the first wake station | The stations of this program are panel midpoints, thus the last airfoil stations and the first wake station are at different positions |
+| First station after the stagnation point | Extrapolation of the first two nodes | Edge speed proportional to the distance, slope from the second station | Simpler, and stable when the stagnation point moves |
+| Number of wake panels | N/10 + 10 (22 for 120 panels) | 20 | No reason. Not important for the results |
 
 ## Stage 3a (one-way calculation)
 
