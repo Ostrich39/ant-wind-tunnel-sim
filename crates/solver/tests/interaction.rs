@@ -147,7 +147,7 @@ fn lift_and_drag_with_trip_strip_are_near_the_ladson_data() {
         worst_drag * 100.0
     );
     assert!(count >= 36);
-    // Measured: lift 8.3%, drag 8.2%.
+    // Measured: lift 8.2%, drag 8.7%.
     assert!(worst_lift < 0.10);
     assert!(worst_drag < 0.10);
 }

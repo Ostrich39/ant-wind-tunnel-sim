@@ -105,7 +105,7 @@ impl State {
 
 /// Residuals of the three equations between station 1 and station 2.
 /// The two states must have the same flow type.
-pub fn residuals(a: &State, b: &State, re: f64) -> [f64; 3] {
+pub fn residuals(a: &State, b: &State, re: f64, n_crit: f64) -> [f64; 3] {
     let (da, db) = (a.derived(re), b.derived(re));
     let x_log = (b.xi / a.xi).ln();
     let u_log = (b.ue / a.ue).ln();
@@ -143,7 +143,9 @@ pub fn residuals(a: &State, b: &State, re: f64) -> [f64; 3] {
         Flow::Laminar => {
             let rate = 0.5
                 * (cl::amplification_rate(da.h, a.theta, da.re_theta)
-                    + cl::amplification_rate(db.h, b.theta, db.re_theta));
+                    + cl::amplification_extra(a.s, n_crit, a.theta)
+                    + cl::amplification_rate(db.h, b.theta, db.re_theta)
+                    + cl::amplification_extra(b.s, n_crit, b.theta));
             b.s - a.s - rate * dx
         }
         Flow::Turbulent | Flow::Wake => {
@@ -331,13 +333,13 @@ pub fn march(
                 transition = Some((i - 1, cause));
             }
         }
-        let mut next = step(&start, xi[i], ue[i], re);
+        let mut next = step(&start, xi[i], ue[i], re, n_crit);
         if next.is_none() && start.flow == Flow::Laminar {
             // Laminar separation between two stations: start turbulent flow
             // at the previous station and solve this station again.
             start = turbulent_start(&start, re);
             transition = Some((i - 1, TransitionCause::LaminarSeparation));
-            next = step(&start, xi[i], ue[i], re);
+            next = step(&start, xi[i], ue[i], re, n_crit);
         }
         *states.last_mut().unwrap() = start;
         match next {
@@ -370,7 +372,7 @@ pub fn turbulent_start(state: &State, re: f64) -> State {
 
 /// Solves the next station. Returns `None` if there is no solution below
 /// the shape factor limit (separation).
-pub fn step(start: &State, xi: f64, ue: f64, re: f64) -> Option<State> {
+pub fn step(start: &State, xi: f64, ue: f64, re: f64, n_crit: f64) -> Option<State> {
     let guess = State { xi, ue, ..*start };
     let laminar = start.flow == Flow::Laminar;
     let mut unknowns = [guess.theta, guess.dstar, guess.s];
@@ -385,6 +387,7 @@ pub fn step(start: &State, xi: f64, ue: f64, re: f64) -> Option<State> {
                 ..guess
             },
             re,
+            n_crit,
         )
     });
     let next = State {

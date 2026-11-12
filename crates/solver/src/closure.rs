@@ -6,7 +6,8 @@
 //! factor H and the momentum-thickness Reynolds number.
 //!
 //! Sources: REFERENCES.md, items 2.1, 2.2, 2.4. The equations were written
-//! from the papers. No program code was copied.
+//! from the papers and compared with the pages of item 2.4 (equations 45
+//! to 79 and Table 2). No program code was copied.
 
 /// Constants of the turbulent closure.
 pub const G_A: f64 = 6.7;
@@ -76,7 +77,12 @@ pub fn hs_turbulent(h: f64, re_theta: f64) -> f64 {
 /// Turbulent skin friction coefficient.
 pub fn cf_turbulent(h: f64, re_theta: f64) -> f64 {
     let b = re_theta.log10().max(1.303);
-    let a = (-1.33 * h).max(-20.0);
+    // Smooth lower limit of the exponent for very large shape factors
+    // (Fidkowski, equation 58).
+    let mut a = -1.33 * h;
+    if a < -17.0 {
+        a = -20.0 + 3.0 * ((a + 17.0) / 3.0).exp();
+    }
     0.3 * a.exp() * b.powf(-1.74 - 0.31 * h) + 0.00011 * ((4.0 - h / 0.875).tanh() - 1.0)
 }
 
@@ -112,12 +118,16 @@ pub fn di_turbulent(h: f64, hs: f64, us: f64, cf: f64, ctau: f64, re_theta: f64)
     (wall + outer + stress).max(di_laminar(h, re_theta))
 }
 
-/// Wake dissipation, in the form 2 cD / H*, for the two halves of the wake.
+/// Wake dissipation, in the form 2 cD / H* (Fidkowski, equations 66 and 67).
+///
+/// The paper gives no extra factor for the two halves of the wake, and
+/// this code follows the paper. A factor of 2 changes the drag by less than
+/// 2% and the lift by less than 0.5% for the NACA 0012 (see GOALS.md).
 pub fn di_wake(h: f64, hs: f64, us: f64, ctau: f64, re_theta: f64) -> f64 {
     let outer = ctau * (0.995 - us) * 2.0 / hs;
     let stress = 0.3 * (0.995 - us).powi(2) / (hs * re_theta);
     let laminar = 2.2 * (1.0 - 1.0 / h).powi(2) / (h * hs * re_theta);
-    2.0 * (outer + stress).max(laminar)
+    (outer + stress).max(laminar)
 }
 
 /// Growth rate of the amplification factor, d n / d xi (envelope e^n method).
@@ -140,4 +150,11 @@ pub fn amplification_rate(h: f64, theta: f64, re_theta: f64) -> f64 {
 /// Square root of the shear stress coefficient at the start of turbulent flow.
 pub fn ctau_start_sqrt(h: f64, ctau_eq_sqrt: f64) -> f64 {
     C_TAU_START * ctau_eq_sqrt * (-E_TAU_START / (h - 1.0)).exp()
+}
+
+/// Small extra growth rate of the amplification factor near the critical
+/// value (Fidkowski, equation 76). It keeps the factor increasing after it
+/// reaches the critical value.
+pub fn amplification_extra(n: f64, n_crit: f64, theta: f64) -> f64 {
+    0.001 * (1.0 + (5.0 * (n - n_crit)).tanh()) / theta
 }

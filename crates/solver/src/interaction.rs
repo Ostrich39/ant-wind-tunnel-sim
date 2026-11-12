@@ -279,7 +279,7 @@ impl Equation {
         }
     }
 
-    fn residual(&self, states: &[State], re: f64) -> [f64; 3] {
+    fn residual(&self, states: &[State], re: f64, n_crit: f64) -> [f64; 3] {
         match *self {
             Equation::Similarity(_) => {
                 let r = ibl::similarity_residuals(&states[0], re);
@@ -293,7 +293,7 @@ impl Equation {
                 } else {
                     states[0]
                 };
-                ibl::residuals(&a, &states[1], re)
+                ibl::residuals(&a, &states[1], re, n_crit)
             }
             Equation::Junction { .. } => {
                 // The two boundary layers join into one wake state at the
@@ -318,7 +318,7 @@ impl Equation {
                     s: (u.theta * shear(u) + l.theta * shear(l)) / (u.theta + l.theta),
                     flow: Flow::Wake,
                 };
-                ibl::residuals(&joined, w, re)
+                ibl::residuals(&joined, w, re, n_crit)
             }
         }
     }
@@ -448,7 +448,7 @@ pub fn solve_interaction(
                     .iter()
                     .map(|&i| state_of(i, values, &ue, flow))
                     .collect();
-                let base = equation.residual(&states, re);
+                let base = equation.residual(&states, re, options.n_crit);
                 for row in 0..3 {
                     residual[3 * k + row] = base[row];
                 }
@@ -469,7 +469,7 @@ pub fn solve_interaction(
                         };
                         let step = 1e-6 * value.abs().max(1e-8);
                         *value += step;
-                        let moved = equation.residual(&shifted, re);
+                        let moved = equation.residual(&shifted, re, options.n_crit);
                         for row in 0..3 {
                             partial[variable][row] = (moved[row] - base[row]) / step;
                         }
@@ -832,7 +832,7 @@ fn start_values(
     for k in lay.wake.clone() {
         if k > first {
             let (xi, speed) = (lay.stations[k].xi, ue[k].max(1e-3));
-            state = match ibl::step(&state, xi, speed, options.re) {
+            state = match ibl::step(&state, xi, speed, options.re, options.n_crit) {
                 Some(next) if next.h() > 1.001 => next,
                 _ => {
                     let h = 1.0 + (state.h() - 1.0) / (1.0 + 10.0 * (xi - state.xi));

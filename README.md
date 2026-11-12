@@ -21,7 +21,7 @@ A desktop program, written in Rust, to design and analyze airfoils.
   friction, drag, the start of turbulent flow, and flow separation.
 
 Accuracy for the NACA 0012 at a Reynolds number of 6 million, with a trip
-strip, against wind tunnel data: lift within 8%, drag within 8%, for angles
+strip, against wind tunnel data: lift within 8%, drag within 9%, for angles
 to 14°. The method is not reliable near stall and after stall. See
 [GOALS.md](GOALS.md) for the full validation table and the limits.
 
