@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/solver"]
+
+# Small, fast release builds (goal: program below 20 MB).
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
