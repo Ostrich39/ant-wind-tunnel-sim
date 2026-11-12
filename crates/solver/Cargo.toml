@@ -1,0 +1,8 @@
+[package]
+name = "solver"
+version = "0.1.0"
+edition = "2021"
+description = "2D airfoil flow solver (no external dependencies)"
+license = "MIT"
+
+[dependencies]
