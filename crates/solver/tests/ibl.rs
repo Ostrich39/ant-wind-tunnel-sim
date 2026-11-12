@@ -76,7 +76,7 @@ fn turbulent_flat_plate_is_near_the_prandtl_schlichting_formula() {
         assert_eq!(cause, TransitionCause::Forced);
         println!("Re {re:.0e}: trip effective at x = {:.4}", xi[index]);
         assert!(re * result.states[index].theta >= TRIP_MIN_RE_THETA);
-        assert!(re * result.states[index - 1].theta < TRIP_MIN_RE_THETA);
+        assert!(index == 0 || re * result.states[index - 1].theta < TRIP_MIN_RE_THETA);
         let last = result.states.last().unwrap();
         let cf_total = 2.0 * last.theta;
         let formula = 0.455 / re.log10().powf(2.58);
