@@ -39,26 +39,85 @@ The project is for personal use and learning. It is not for sale.
 | 2 | Desktop window: airfoil view, pressure plot, live controls for angle and NACA shape | Done |
 | 3a | One-way boundary layer: friction drag, transition, Reynolds number, separation warning | Done |
 | 3b-1 | Source panels for the displacement effect; fast repeated solution of the panel equations | Done |
-| 3b-2 | Two-way calculation by direct iteration (experimental) | Done, but not accurate enough. The program does not use it |
-| 3b-3 | Wake panels and simultaneous solution of the flow and the boundary layer (Drela 1989): lift correction, separation bubbles, stall | Not started |
+| 3b-2 | Two-way calculation by direct iteration (experimental) | Removed. It was not accurate enough. Stage 3b-3 replaces it |
+| 3b-3 | Wake panels and simultaneous solution of the flow and the boundary layer (Drela's method): lift with friction, drag, mild separation | Done. The program uses it |
+| 3b-4 | Reliable results near stall and after stall; separation bubbles; transition between stations | Not started |
 | 4 | Shape editor and airfoil file import (.dat) | Not started |
 | 5 | Flow field display (streamlines, pressure colors) | Not started |
 | 6 | Live flow solver for arbitrary shapes (approximate) | Not started |
 
-## Limits of the current model (stages 1 to 3a)
+## Limits of the current model (stage 3b-3, used by the program)
 
-- The boundary layer calculation is one-way. It uses the pressure from the
-  friction-free solution and does not change it.
-- Thus the lift has no friction correction. Lift values are too high
-  compared with wind tunnel data, and the program cannot predict stall.
-- The drag value is valid only for attached flow. If the turbulent boundary
-  layer separates before 98% of the chord, the program gives no drag value
-  and shows where the flow separates.
-- The laminar separation bubble is not modeled. Laminar separation starts
-  turbulent flow at the same position.
-- The drag is compared with wind tunnel data for one airfoil (NACA 0012) at
-  one Reynolds number (6 million). See the validation table.
-- Stage 3b corrects the first four limits.
+- **Stall.** The calculation is not reliable near stall and after stall.
+  For many conditions in that range it has no solution, and the program
+  then shows a message and no drag value. A result that it does give near
+  stall can have a lift that is too high.
+- **Separation bubbles.** A laminar separation bubble is not modeled.
+  Turbulent flow starts at the laminar separation point or before it. This
+  is most important at Reynolds numbers below approximately 500 000.
+- **Transition position.** Turbulent flow starts at a station (a panel
+  midpoint), not at a position between two stations. In one solution the
+  start of turbulent flow can only move toward the leading edge.
+- **Free transition.** The drag with free transition depends on the
+  transition factor N, which describes the turbulence of the wind tunnel.
+  With the standard value N = 9, the drag is 5% to 17% below the Abbott and
+  von Doenhoff data. See the validation table.
+- **Compared airfoils.** Wind tunnel data are compared for one airfoil
+  (NACA 0012) at one Reynolds number (6 million).
+- **Speed range.** Low speed only (no compressibility).
+- **Trailing edge.** Sharp trailing edge only.
+
+## Differences from XFOIL
+
+The method is the same in principle (Drela 1989). These parts are different:
+
+| Part | This program | XFOIL |
+|---|---|---|
+| Boundary layer stations | Panel midpoints | Panel end points |
+| Transition | At a station | At a position between two stations |
+| Jacobian matrix | Finite differences, full matrix solution | Analytic, block solution |
+| Stagnation point | Fixed in one Newton solution, then checked | Moves in each iteration |
+| Amplification equation | With the modification of Fidkowski (mfoil) | Original |
+| Panel method | Linear vortex panels, velocity form | Linear vortex panels, stream function form |
+
+No XFOIL code and no mfoil code is in this program. The equations are from
+the papers (REFERENCES.md, items 2.1, 2.2, 2.4).
+
+## Assumptions in stage 3b-3
+
+| Assumption | Value | Basis |
+|---|---|---|
+| Wake length | 1 chord, 20 panels | Assumption (mfoil uses 1 chord) |
+| Trip strip is effective only if the momentum-thickness Reynolds number is 200 or more | 200 | Assumption. No source is recorded |
+| Trip strip position for the Ladson comparison | 5% of chord | Assumption. The position is not in the data file |
+| Panels at the trailing edge | Approximately 1% of chord (120 panels) | Smaller panels made the calculation unstable |
+| Closure constants that the paper text did not show clearly | See REFERENCES.md, item 2.4 | Completed from memory of the published method. The tests support them, but each one must be checked against the paper |
+
+## Validation status of stage 3b-3
+
+NACA 0012, Reynolds number 6 million, 120 panels.
+
+| Quantity | Compared with | Result |
+|---|---|---|
+| Lift with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | Largest difference 8.3% (at 2°). At 4° and above the model is 3% to 5% high. Stage 3a was 9% to 17% high |
+| Drag with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | −8.2% to +6.6%. The scatter between the three data sets is approximately 4% |
+| Drag with free transition, N = 9 (18 points) | Abbott and von Doenhoff data (digitized) | −17.2% to +1.7%. Most points are 9% to 14% low |
+| Effect of N on drag at 0°, free transition | Abbott data value 0.0059 | N = 9: 0.0049. N = 7: 0.0053. N = 5: 0.0058. N = 3: 0.0064 |
+| Angles above 14.3° | Ladson data continue to 19°, with stall at approximately 17° | Not validated. The model has no reliable result here |
+| Panel count 120 and 200 | Same case | Lift changes 0.1%, drag changes 1.3% |
+| Laminar flat plate | Blasius exact solution | Thickness, friction, and shape factor within 1% |
+| Stagnation flow | Hiemenz exact solution | Thickness within 0.3% (stage 3a: 6%) |
+| Decelerating (Howarth) flow | Exact separation position 0.1199 | Shape factor limit reached at 0.1236 |
+| Turbulent flat plate drag | Prandtl-Schlichting formula | 5% to 7% low at Reynolds numbers of 10 and 100 million |
+| Other airfoils, other Reynolds numbers | Wind tunnel data | Not compared |
+
+Speed: one solution takes 30 ms to 60 ms for 120 panels (target: below
+100 ms). A condition without a solution takes 100 ms to 200 ms.
+
+## Stage 3a (one-way calculation)
+
+The solver still contains the one-way calculation (`boundary_layer.rs`,
+`viscous.rs`) and its tests. The program does not use it.
 
 ## Assumptions in stage 3a
 
@@ -112,7 +171,7 @@ The project is for personal use and learning. It is not for sale.
   an exact solution.
 - Each new source goes into `REFERENCES.md` in the same change.
 
-## Result of stage 3b-2 (experimental two-way calculation)
+## Result of stage 3b-2 (experimental two-way calculation, removed)
 
 The calculation puts a source on each panel to model the displacement of
 the outer flow by the boundary layer, and repeats the flow and boundary

@@ -1,5 +1,8 @@
 //! Tests of the wake line and of the source influence table.
 
+// Index loops are clearer than iterators for these matrix calculations.
+#![allow(clippy::needless_range_loop)]
+
 use solver::panel::source_velocity;
 use solver::wake::{SourceInfluence, Wake};
 use solver::{naca4, PanelSystem};

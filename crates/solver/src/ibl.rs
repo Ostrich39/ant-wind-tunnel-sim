@@ -174,7 +174,7 @@ pub fn residuals(a: &State, b: &State, re: f64) -> [f64; 3] {
 
 /// Residuals at the first station after a stagnation point (similarity
 /// station: ue is proportional to xi, and theta and H are constant).
-fn similarity_residuals(b: &State, re: f64) -> [f64; 2] {
+pub fn similarity_residuals(b: &State, re: f64) -> [f64; 2] {
     let d = b.derived(re);
     let cfx = d.cf * b.xi / b.theta;
     let dix = d.di * b.xi / b.theta;
@@ -358,7 +358,7 @@ pub fn march(
 /// Changes a laminar state into the first turbulent state at the same
 /// station: same momentum thickness, shape factor not above the turbulent
 /// limit, shear stress from the equilibrium value.
-fn turbulent_start(state: &State, re: f64) -> State {
+pub fn turbulent_start(state: &State, re: f64) -> State {
     let mut start = *state;
     start.flow = Flow::Turbulent;
     start.dstar = start.dstar.min(0.99 * H_LIMIT_TURBULENT * start.theta);
@@ -370,7 +370,7 @@ fn turbulent_start(state: &State, re: f64) -> State {
 
 /// Solves the next station. Returns `None` if there is no solution below
 /// the shape factor limit (separation).
-fn step(start: &State, xi: f64, ue: f64, re: f64) -> Option<State> {
+pub fn step(start: &State, xi: f64, ue: f64, re: f64) -> Option<State> {
     let guess = State { xi, ue, ..*start };
     let laminar = start.flow == Flow::Laminar;
     let mut unknowns = [guess.theta, guess.dstar, guess.s];
