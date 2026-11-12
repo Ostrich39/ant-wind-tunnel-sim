@@ -54,7 +54,8 @@ The project is for personal use and learning. It is not for sale.
   and shows where the flow separates.
 - The laminar separation bubble is not modeled. Laminar separation starts
   turbulent flow at the same position.
-- The drag is not yet compared with wind tunnel data.
+- The drag is compared with wind tunnel data for one airfoil (NACA 0012) at
+  one Reynolds number (6 million). See the validation table.
 - Stage 3b corrects the first four limits.
 
 ## Assumptions in stage 3a
@@ -63,6 +64,7 @@ The project is for personal use and learning. It is not for sale.
 |---|---|---|
 | Shape factor at the start of turbulent flow | 1.4 | Assumption. No source is recorded |
 | Shape factor at turbulent separation | 2.4 | Published range is 1.8 to 2.4 (REFERENCES.md 1.11) |
+| Trip strip position for the Ladson comparison | 5% of chord | Assumption. The position is not in the data file |
 | Drag reference station | 98% of chord | Assumption. The friction-free flow has a stagnation point at the trailing edge that a real flow does not have |
 
 ## Validation status of stage 3a
@@ -73,7 +75,12 @@ The project is for personal use and learning. It is not for sale.
 | Stagnation flow thickness | Thwaites closed form; Hiemenz exact solution | Equal to the closed form; 6% below the exact solution (known property of Thwaites' method) |
 | Decelerating (Howarth) flow | Thwaites closed form; published separation position | Equal to the closed form; separation at x = 0.123 (published 0.123; exact 0.1199) |
 | Turbulent flat plate drag | Prandtl-Schlichting formula | Difference 7% at Re 1e6, 6% at Re 1e7, 12% at Re 1e8 |
-| Airfoil drag | Wind tunnel data | Not compared. The data files were not available to the test computer |
+| NACA 0012 drag with trip strip, Re 6 million, angles −4° to 8.3° | Ladson wind tunnel data (26 points) | Difference −5.4% to +4.1%. The scatter between the three data sets is approximately 4% |
+| NACA 0012 drag, free transition, Re 6 million, lift coefficient to ±0.46 | Abbott and von Doenhoff data (digitized) | Difference −1.1% to +5.3% |
+| NACA 0012 drag, free transition, lift coefficient 0.55 to 1.08 | Abbott and von Doenhoff data (digitized) | Model is 8% to 17% low |
+| NACA 0012 lift at the same angle, 2° to 8.3° | Ladson wind tunnel data | Model is 9% to 17% high (no friction correction) |
+| Drag at angles above approximately 9° | Ladson wind tunnel data | No model value. The data continue to 17° |
+| Other airfoils, other Reynolds numbers | Wind tunnel data | Not compared |
 | Airfoil drag, internal checks | Symmetry, trend with Reynolds number, panel count | Pass. Change of 1% to 2% when the panel count doubles |
 
 ## Status against the performance goals (stage 2)
@@ -105,8 +112,9 @@ The project is for personal use and learning. It is not for sale.
 
 ## Open items for stage 3a
 
-- Add the NASA data files for the NACA 0012 (REFERENCES.md, section 4) to
-  the repository, then add a drag comparison test.
+- The trip strip position in the Ladson tests is not confirmed. The model
+  uses 5% of chord.
+- Compare a cambered airfoil and a lower Reynolds number with wind tunnel data.
 
 ## Open decisions
 

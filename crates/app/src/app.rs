@@ -292,7 +292,7 @@ impl TunnelApp {
             RichText::new(
                 "The friction model does not change the pressure. The lift has no \
                  friction correction. The drag is valid only for attached flow. \
-                 The drag is not yet compared with wind tunnel data.",
+                 It is compared with wind tunnel data for the NACA 0012 only.",
             )
             .size(11.0)
             .color(TEXT_DIM),
