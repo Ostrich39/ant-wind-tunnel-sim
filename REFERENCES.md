@@ -45,14 +45,14 @@ Check words:
 | 1.17 | Velocity of a constant-strength source panel. Standard result, for example Katz, J., Plotkin, A. *Low-Speed Aerodynamics*, Cambridge University Press; Hess, J. L., Smith, A. M. O. (1967). | Source panels | `crates/solver/src/panel.rs` | Not checked (from memory). Tests check the equations: flow through a far circle and flow out of the surface |
 | 1.18 | Displacement effect as a surface source with strength d(ue δ*)/ds (Lighthill 1958, transpiration model), as used in XFOIL (item 2.1). | Two-way calculation | `crates/solver/src/coupled.rs` | Not checked (from memory) |
 
-## 2. Theory planned for later stages
+## 2. Theory for the two-way calculation and for later stages
 
 | # | Source | Planned use | Check |
 |---|---|---|---|
-| 2.1 | Drela, M. (1989). XFOIL: An Analysis and Design System for Low Reynolds Number Airfoils. In: Mueller, T. J. (ed.), *Low Reynolds Number Aerodynamics*, Lecture Notes in Engineering 54, Springer. https://doi.org/10.1007/978-3-642-84010-4_1 | Stage 3b: boundary layer, transition, coupling with the panel method | Checked |
-| 2.2 | Drela, M., Giles, M. B. (1987). Viscous-Inviscid Analysis of Transonic and Low Reynolds Number Airfoils. *AIAA Journal* 25(10), 1347-1355. | Stage 3b: boundary layer equations | Checked |
+| 2.1 | Drela, M. (1989). XFOIL: An Analysis and Design System for Low Reynolds Number Airfoils. In: Mueller, T. J. (ed.), *Low Reynolds Number Aerodynamics*, Lecture Notes in Engineering 54, Springer. https://doi.org/10.1007/978-3-642-84010-4_1 | **Used** in stage 3b-3 (method). The equations are from item 2.4 | Checked (citation). Paper not read |
+| 2.2 | Drela, M., Giles, M. B. (1987). Viscous-Inviscid Analysis of Transonic and Low Reynolds Number Airfoils. *AIAA Journal* 25(10), 1347-1355. | **Used** in stage 3b-3 (boundary layer formulation). The equations are from item 2.4 | Checked |
 | 2.3 | Drela, M. (1989). An Integral Boundary Layer Formulation for Blunt Trailing Edges. AIAA paper. | Stage 3b: blunt trailing edges | Checked, but the paper number is not certain: one source gives AIAA-89-2166, a different source gives AIAA-89-2200 |
-| 2.4 | Fidkowski, K. mfoil: coupled integral boundary layer and vortex-panel solver (Matlab). https://websites.umich.edu/~kfid/codes/mfoil/mfoil.pdf | Stage 3b: modern description of the XFOIL-type method | Checked |
+| 2.4 | Fidkowski, K. (2022). A Coupled Inviscid-Viscous Airfoil Analysis Solver, Revisited (mfoil). *AIAA Journal* (accepted November 2021). https://public.websites.umich.edu/~kfid/codes/mfoil/mfoil.pdf | **Used** in stage 3b-3: boundary layer equations, closure relations, amplification rate, constants (`crates/solver/src/closure.rs`, `ibl.rs`, `interaction.rs`) | Checked (paper read through a text extraction). The extraction did not show these items clearly, and they were completed from memory of the published method: the squared term in the second branch of the turbulent H* relation; the argument of tanh in the turbulent skin friction; the outer dissipation term, linear in (0.995 − Us); the factor 2δ in the shear lag equation; the constant G_B in the slip velocity. Check each one against the paper. Journal volume and pages not checked |
 | 2.5 | Griebel, M., Dornseifer, T., Neunhoeffer, T. (1998). *Numerical Simulation in Fluid Dynamics: A Practical Introduction*. SIAM. | Stage 6: Navier-Stokes solver on a staggered grid | Checked |
 | 2.6 | Succi, S. (2001). *The Lattice Boltzmann Equation for Fluid Dynamics and Beyond*. Oxford University Press. https://doi.org/10.1093/oso/9780198503989.001.0001 | Stage 6: lattice Boltzmann method (alternative) | Checked |
 
@@ -102,5 +102,6 @@ No code from this software is copied into this project.
 - Confirm item 1.4 (Anderson: edition and section) and the publication year of item 1.1.
 - Resolve the paper number of item 2.3.
 - Confirm the trip strip position in item 4.4.
+- Check the closure items listed in item 2.4 against the paper.
 - Confirm items 1.9, 1.12, 1.16 and the equations from memory in item 1.8.
 - Find a source for the shape factor 1.4 at the start of turbulent flow.

@@ -34,6 +34,21 @@ impl Airfoil {
 /// NACA 4-digit airfoil, for example "0012" or "2412".
 /// `n_panels` must be an even number. The trailing edge is closed.
 pub fn naca4(code: &str, n_panels: usize) -> Result<Airfoil, String> {
+    naca4_with_spacing(code, n_panels, 1.0)
+}
+
+/// NACA 4-digit airfoil with panels for the two-way (friction) calculation.
+/// The panels are small at the leading edge and medium at the trailing
+/// edge (approximately 1% of the chord for 120 panels). Very small panels
+/// at the trailing edge make the two-way calculation unstable.
+pub fn naca4_for_friction(code: &str, n_panels: usize) -> Result<Airfoil, String> {
+    naca4_with_spacing(code, n_panels, 0.85)
+}
+
+/// `spacing_end` sets the panel distribution: 1.0 gives cosine spacing
+/// (small panels at the two ends); a smaller value gives larger panels at
+/// the trailing edge.
+fn naca4_with_spacing(code: &str, n_panels: usize, spacing_end: f64) -> Result<Airfoil, String> {
     let digits: Vec<u32> = code.chars().filter_map(|c| c.to_digit(10)).collect();
     if code.len() != 4 || digits.len() != 4 {
         return Err(format!("'{code}' is not a 4-digit NACA code"));
@@ -54,7 +69,8 @@ pub fn naca4(code: &str, n_panels: usize) -> Result<Airfoil, String> {
     let n_side = n_panels / 2;
     let surface = |k: usize| -> ([f64; 2], [f64; 2]) {
         // Cosine spacing puts more points near the leading and trailing edges.
-        let x = 0.5 * (1.0 - (PI * k as f64 / n_side as f64).cos());
+        let beta_end = PI * spacing_end;
+        let x = (1.0 - (beta_end * k as f64 / n_side as f64).cos()) / (1.0 - beta_end.cos());
         let yt = 5.0
             * t
             * (0.2969 * x.sqrt() - 0.1260 * x - 0.3516 * x.powi(2) + 0.2843 * x.powi(3)

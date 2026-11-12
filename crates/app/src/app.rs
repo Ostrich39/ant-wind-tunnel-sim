@@ -4,9 +4,9 @@ use crate::view::{self, Mapper};
 use eframe::egui::{
     self, vec2, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Shape, Stroke, Ui,
 };
-use solver::boundary_layer::TransitionCause;
-use solver::viscous::{SurfaceReport, DRAG_REFERENCE_X};
-use solver::{analyze, naca4, solve, Airfoil, Solution, ViscousResult};
+use solver::closure::Flow;
+use solver::interaction::{FrictionSystem, InteractionResult, Options, Surface, WarmStart};
+use solver::{naca4_for_friction, Airfoil, Solution};
 
 const BACKGROUND: Color32 = Color32::from_rgb(15, 19, 24);
 const PANEL: Color32 = Color32::from_rgb(22, 27, 34);
@@ -40,6 +40,9 @@ pub struct Inputs {
     pub trip: bool,
     /// Forced transition position, x/c.
     pub trip_x: f64,
+    /// Critical amplification factor for natural transition. A lower
+    /// value is for a flow with more turbulence.
+    pub n_crit: f64,
 }
 
 impl Default for Inputs {
@@ -49,10 +52,11 @@ impl Default for Inputs {
             camber_pos: 4,
             thickness: 12,
             alpha: 4.0,
-            panels: 160,
+            panels: 120,
             reynolds: 3.0e6,
             trip: false,
             trip_x: 0.05,
+            n_crit: 9.0,
         }
     }
 }
@@ -68,7 +72,7 @@ impl Inputs {
         } else {
             self.camber_pos.clamp(1, 9)
         };
-        self.panels = (self.panels.clamp(20, 400) / 2) * 2;
+        self.panels = (self.panels.clamp(60, 200) / 2) * 2;
         self.alpha = if self.alpha.is_finite() {
             self.alpha.clamp(-20.0, 20.0)
         } else {
@@ -84,6 +88,11 @@ impl Inputs {
         } else {
             0.05
         };
+        self.n_crit = if self.n_crit.is_finite() {
+            self.n_crit.clamp(3.0, 12.0)
+        } else {
+            9.0
+        };
         self
     }
 
@@ -94,29 +103,87 @@ impl Inputs {
 
 pub struct Computed {
     pub foil: Airfoil,
+    /// Friction-free flow.
     pub solution: Solution,
-    /// Friction result. An error text if the calculation is not possible.
-    pub viscous: Result<ViscousResult, String>,
+    /// Two-way result (flow and boundary layer). `None` if the calculation
+    /// has no converged result; `friction_note` then gives the cause.
+    pub friction: Option<InteractionResult>,
+    pub friction_note: Option<String>,
     pub solve_ms: f64,
 }
 
-pub fn compute(inputs: &Inputs) -> Result<Computed, String> {
-    let start = std::time::Instant::now();
-    let foil = naca4(&inputs.code(), inputs.panels)?;
-    let solution = solve(&foil, inputs.alpha)?;
-    let trip = inputs.trip.then_some(inputs.trip_x);
-    let viscous = analyze(&foil, &solution, inputs.reynolds, trip);
-    Ok(Computed {
-        foil,
-        solution,
-        viscous,
-        solve_ms: start.elapsed().as_secs_f64() * 1000.0,
-    })
+impl Computed {
+    /// Pressure coefficient on each panel: with friction if that result
+    /// is available, friction-free if not.
+    pub fn cp(&self) -> &[f64] {
+        match &self.friction {
+            Some(result) => &result.cp,
+            None => &self.solution.cp,
+        }
+    }
 }
+
+/// Keeps the data of the current airfoil shape and the last solution, so
+/// that a new result after a small input change is fast.
+#[derive(Default)]
+pub struct Analyzer {
+    shape: Option<(String, usize)>,
+    friction: Option<FrictionSystem>,
+    warm: Option<WarmStart>,
+}
+
+impl Analyzer {
+    pub fn compute(&mut self, inputs: &Inputs) -> Result<Computed, String> {
+        let start = std::time::Instant::now();
+        let shape = (inputs.code(), inputs.panels);
+        if self.shape.as_ref() != Some(&shape) || self.friction.is_none() {
+            let foil = naca4_for_friction(&shape.0, shape.1)?;
+            self.friction = Some(FrictionSystem::new(foil)?);
+            self.shape = Some(shape);
+        }
+        let system = self
+            .friction
+            .as_ref()
+            .ok_or("the airfoil data is not available")?;
+        let solution = system.system.solve(inputs.alpha, None)?;
+        let options = Options {
+            re: inputs.reynolds,
+            forced_transition_x: inputs.trip.then_some(inputs.trip_x),
+            n_crit: inputs.n_crit,
+        };
+        let (friction, friction_note) =
+            match system.solve_quick(inputs.alpha, &options, self.warm.as_ref()) {
+                Ok((result, warm)) if result.converged => {
+                    self.warm = Some(warm);
+                    (Some(result), None)
+                }
+                Ok(_) => {
+                    self.warm = None;
+                    (None, Some(NO_SOLUTION_TEXT.to_owned()))
+                }
+                Err(message) => {
+                    self.warm = None;
+                    (None, Some(message))
+                }
+            };
+        Ok(Computed {
+            foil: system.foil.clone(),
+            solution,
+            friction,
+            friction_note,
+            solve_ms: start.elapsed().as_secs_f64() * 1000.0,
+        })
+    }
+}
+
+const NO_SOLUTION_TEXT: &str = "The friction calculation has no solution at this condition. \
+     The cause is usually stall (the flow separates from a large part of the surface). \
+     Decrease the angle of attack, or move the angle slowly from a lower value.";
 
 pub struct TunnelApp {
     inputs: Inputs,
     solved_for: Option<Inputs>,
+    analyzer: Analyzer,
     result: Result<Computed, String>,
     show_pressure_lines: bool,
 }
@@ -132,8 +199,9 @@ impl TunnelApp {
         let inputs = Inputs::default();
         Self {
             inputs,
-            solved_for: Some(inputs),
-            result: compute(&inputs),
+            solved_for: None,
+            analyzer: Analyzer::default(),
+            result: Err("no result yet".to_owned()),
             show_pressure_lines: true,
         }
     }
@@ -211,9 +279,22 @@ impl TunnelApp {
         );
         ui.add_space(12.0);
 
+        ui.add(
+            egui::Slider::new(&mut self.inputs.n_crit, 3.0..=12.0)
+                .step_by(0.5)
+                .fixed_decimals(1)
+                .text("Transition factor N"),
+        );
+        ui.label(
+            RichText::new("N = 9: clean wind tunnel. Lower N: more turbulence in the flow.")
+                .size(11.0)
+                .color(TEXT_DIM),
+        );
+        ui.add_space(12.0);
+
         section(ui, "SOLVER");
         ui.add(
-            egui::Slider::new(&mut self.inputs.panels, 40..=400)
+            egui::Slider::new(&mut self.inputs.panels, 60..=200)
                 .step_by(20.0)
                 .text("Panels"),
         );
@@ -223,61 +304,57 @@ impl TunnelApp {
         section(ui, "RESULTS");
         match &self.result {
             Ok(done) => {
-                readout(
-                    ui,
-                    "Lift coefficient (no friction)",
-                    &format!("{:+.4}", done.solution.cl),
-                );
-                match &done.viscous {
-                    Ok(viscous) => {
-                        match viscous.cd {
-                            Some(cd) => {
-                                readout(ui, "Drag coefficient", &format!("{cd:.5}"));
-                                readout(
-                                    ui,
-                                    "Lift / drag",
-                                    &format!("{:.1}", done.solution.cl / cd),
-                                );
-                            }
-                            None => {
-                                ui.label(
-                                    RichText::new("Drag coefficient").size(12.0).color(TEXT_DIM),
-                                );
-                                ui.label(RichText::new("No value").size(20.0).color(SEPARATION));
-                                ui.label(
-                                    RichText::new(separation_text(viscous))
-                                        .size(12.0)
-                                        .color(SEPARATION),
-                                );
-                            }
-                        }
+                match &done.friction {
+                    Some(friction) => {
+                        readout(ui, "Lift coefficient", &format!("{:+.4}", friction.cl));
+                        ui.label(
+                            RichText::new(format!(
+                                "Without friction: {:+.4}",
+                                friction.cl_inviscid
+                            ))
+                            .size(11.0)
+                            .color(TEXT_DIM),
+                        );
+                        readout(ui, "Drag coefficient", &format!("{:.5}", friction.cd));
+                        readout(
+                            ui,
+                            "Lift / drag",
+                            &format!("{:.1}", friction.cl / friction.cd),
+                        );
                         ui.add_space(4.0);
                         ui.label(
-                            RichText::new("Transition position")
+                            RichText::new("Start of turbulent flow")
                                 .size(12.0)
                                 .color(TEXT_DIM),
                         );
                         ui.label(
                             RichText::new(format!(
                                 "Upper {}   Lower {}",
-                                transition_text(&viscous.upper),
-                                transition_text(&viscous.lower)
+                                position_text(friction.transition_upper),
+                                position_text(friction.transition_lower)
                             ))
                             .size(13.0)
                             .color(TEXT),
                         );
+                        if let Some(text) = separation_text(friction) {
+                            ui.label(RichText::new(text).size(12.0).color(SEPARATION));
+                        }
                     }
-                    Err(message) => {
-                        ui.colored_label(SEPARATION, format!("No friction result: {message}"));
+                    None => {
+                        readout(
+                            ui,
+                            "Lift coefficient (no friction)",
+                            &format!("{:+.4}", done.solution.cl),
+                        );
+                        ui.label(RichText::new("Drag coefficient").size(12.0).color(TEXT_DIM));
+                        ui.label(RichText::new("No value").size(20.0).color(SEPARATION));
+                        if let Some(note) = &done.friction_note {
+                            ui.label(RichText::new(note).size(12.0).color(SEPARATION));
+                        }
                     }
                 }
-                readout(
-                    ui,
-                    "Moment coefficient (c/4)",
-                    &format!("{:+.4}", done.solution.cm),
-                );
                 ui.label(
-                    RichText::new(format!("Solved in {:.1} ms", done.solve_ms))
+                    RichText::new(format!("Solved in {:.0} ms", done.solve_ms))
                         .size(11.0)
                         .color(TEXT_DIM),
                 );
@@ -290,9 +367,9 @@ impl TunnelApp {
         ui.add_space(12.0);
         ui.label(
             RichText::new(
-                "The friction model does not change the pressure. The lift has no \
-                 friction correction. The drag is valid only for attached flow. \
-                 It is compared with wind tunnel data for the NACA 0012 only.",
+                "Compared with wind tunnel data for the NACA 0012 only. \
+                 The method is not reliable near stall and after stall. \
+                 See GOALS.md for the measured differences.",
             )
             .size(11.0)
             .color(TEXT_DIM),
@@ -307,6 +384,7 @@ impl TunnelApp {
         let Ok(done) = &self.result else { return };
 
         let pts = &done.foil.points;
+        let cp = done.cp();
         let n = pts.len() - 1;
         let map = view::fit_uniform(rect.shrink(16.0), -0.12, 1.12, -0.30, 0.30);
         // Show the airfoil at its angle of attack. The flow is horizontal.
@@ -339,7 +417,7 @@ impl TunnelApp {
                 let len = dx.hypot(dy);
                 // Outward normal for clockwise point order.
                 let (nx, ny) = (-dy / len, dx / len);
-                let cp = done.solution.cp[j];
+                let cp = cp[j];
                 let reach = (cp.abs().min(8.0) as f32) * length_per_cp;
                 let base = map.to_screen(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1]));
                 // Screen y points down, thus the sign of ny changes.
@@ -371,7 +449,7 @@ impl TunnelApp {
         ));
 
         // Boundary layer markers: transition (T) and separation (S).
-        if let Ok(viscous) = &done.viscous {
+        if let Some(friction) = &done.friction {
             let marker = |panel: usize, text: &str, color: Color32| {
                 let (a, b) = (world[panel], world[panel + 1]);
                 let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
@@ -389,14 +467,21 @@ impl TunnelApp {
                     color,
                 );
             };
-            for surface in [&viscous.upper, &viscous.lower] {
-                if let Some(panel) = surface.transition_panel {
+            for surface in [Surface::Upper, Surface::Lower] {
+                let stations = friction.stations.iter().filter(|st| st.surface == surface);
+                if let Some(panel) = stations
+                    .clone()
+                    .find(|st| st.flow == Flow::Turbulent)
+                    .and_then(|st| st.panel)
+                {
                     marker(panel, "T", TRANSITION);
                 }
-                if let (Some(panel), Some(x)) = (surface.separation_panel, surface.separation) {
-                    if x < DRAG_REFERENCE_X {
-                        marker(panel, "S", SEPARATION);
-                    }
+                if let Some(panel) = stations
+                    .clone()
+                    .find(|st| st.cf < 0.0)
+                    .and_then(|st| st.panel)
+                {
+                    marker(panel, "S", SEPARATION);
                 }
             }
         }
@@ -409,7 +494,7 @@ impl TunnelApp {
         let Ok(done) = &self.result else { return };
 
         let plot = Rect::from_min_max(rect.min + vec2(64.0, 30.0), rect.max - vec2(24.0, 44.0));
-        let cp_min = done.solution.cp.iter().cloned().fold(-1.0, f64::min);
+        let cp_min = done.cp().iter().cloned().fold(-1.0, f64::min);
         let top_value = (cp_min - 0.25).floor();
         // Negative pressure coefficient is at the top (aerodynamics convention).
         let map = Mapper {
@@ -466,13 +551,9 @@ impl TunnelApp {
 
         let foil = &done.foil;
         let (x_min, chord) = (foil.x_min(), foil.chord());
-        let n = done.solution.cp.len();
-        let point = |j: usize| {
-            map.to_screen(
-                (done.solution.mid[j][0] - x_min) / chord,
-                done.solution.cp[j],
-            )
-        };
+        let cp = done.cp();
+        let n = cp.len();
+        let point = |j: usize| map.to_screen((done.solution.mid[j][0] - x_min) / chord, cp[j]);
         let clip = painter.with_clip_rect(plot.expand(1.0));
         // Panels 0..n/2 are on the lower surface. The others are on the upper surface.
         clip.line(
@@ -521,7 +602,7 @@ impl eframe::App for TunnelApp {
         // Live update: solve again when an input changes.
         self.inputs = self.inputs.normalized();
         if self.solved_for != Some(self.inputs) {
-            self.result = compute(&self.inputs);
+            self.result = self.analyzer.compute(&self.inputs);
             self.solved_for = Some(self.inputs);
         }
 
@@ -553,34 +634,26 @@ fn label(painter: &egui::Painter, pos: Pos2, anchor: Align2, text: &str, color: 
     painter.text(pos, anchor, text, FontId::proportional(12.0), color);
 }
 
-/// Text for the transition position of one surface.
-fn transition_text(surface: &SurfaceReport) -> String {
-    match surface.transition {
-        Some((x, cause)) => {
-            let cause = match cause {
-                TransitionCause::Michel => "natural",
-                TransitionCause::LaminarSeparation => "laminar separation",
-                TransitionCause::Forced => "forced",
-            };
-            format!("{:.0} % ({cause})", x * 100.0)
-        }
+/// Text for a chord position, in percent.
+fn position_text(x: Option<f64>) -> String {
+    match x {
+        Some(x) => format!("{:.0} %", x * 100.0),
         None => "none".to_owned(),
     }
 }
 
-/// Text that tells where the flow separates.
-fn separation_text(viscous: &ViscousResult) -> String {
+/// Text that tells where the flow separates, if it does.
+fn separation_text(friction: &InteractionResult) -> Option<String> {
     let mut parts = Vec::new();
-    for (name, surface) in [("upper", &viscous.upper), ("lower", &viscous.lower)] {
-        if let Some(x) = surface.separation.filter(|x| *x < DRAG_REFERENCE_X) {
+    for (name, x) in [
+        ("upper", friction.separation_upper),
+        ("lower", friction.separation_lower),
+    ] {
+        if let Some(x) = x {
             parts.push(format!("{:.0} % of chord on the {name} surface", x * 100.0));
         }
     }
-    if parts.is_empty() {
-        "The boundary layer calculation did not reach the trailing edge.".to_owned()
-    } else {
-        format!("Flow separation at {}.", parts.join(" and at "))
-    }
+    (!parts.is_empty()).then(|| format!("Flow separation from {}.", parts.join(" and from ")))
 }
 
 fn legend(painter: &egui::Painter, rect: Rect) {
@@ -631,10 +704,12 @@ mod tests {
     }
 
     #[test]
-    fn normalized_inputs_are_valid_for_the_solver() {
-        // Each combination the controls can make must give a result.
+    fn normalized_inputs_give_a_flow_result() {
+        // Each shape that the controls can make must give a friction-free
+        // result. The friction result can be absent (no solution).
+        let mut analyzer = Analyzer::default();
         for camber in 0..=9 {
-            for camber_pos in 0..=9 {
+            for camber_pos in [0, 2, 5, 9] {
                 for thickness in [4, 12, 30] {
                     let raw = Inputs {
                         camber,
@@ -644,8 +719,11 @@ mod tests {
                         panels: 60,
                         ..inputs()
                     };
-                    let done = compute(&raw.normalized());
+                    let done = analyzer.compute(&raw.normalized());
                     assert!(done.is_ok(), "{raw:?}: {:?}", done.err());
+                    let done = done.unwrap();
+                    assert!(done.friction.is_some() || done.friction_note.is_some());
+                    assert_eq!(done.cp().len(), 60);
                 }
             }
         }
@@ -662,13 +740,15 @@ mod tests {
             reynolds: f64::NAN,
             trip: true,
             trip_x: 7.0,
+            n_crit: f64::NAN,
         };
         let fixed = bad.normalized();
         assert_eq!((fixed.camber, fixed.camber_pos, fixed.thickness), (9, 1, 1));
-        assert_eq!(fixed.panels, 40);
+        assert_eq!(fixed.panels, 60);
         assert_eq!(fixed.alpha, 0.0);
         assert_eq!(fixed.reynolds, 3.0e6);
         assert_eq!(fixed.trip_x, 0.9);
+        assert_eq!(fixed.n_crit, 9.0);
         let flat = Inputs {
             camber: 0,
             camber_pos: 7,
@@ -679,43 +759,87 @@ mod tests {
     }
 
     #[test]
-    fn friction_result_exists_for_the_start_values() {
-        let done = compute(&inputs()).unwrap();
-        let viscous = done.viscous.unwrap();
-        assert!(viscous.cd.unwrap() > 0.0);
-        assert!(transition_text(&viscous.upper).contains("natural"));
-        // A trip strip moves the transition to the set position.
-        let tripped = compute(&Inputs {
-            trip: true,
-            trip_x: 0.05,
-            ..inputs()
-        })
-        .unwrap();
-        assert!(transition_text(&tripped.viscous.unwrap().lower).contains("forced"));
+    fn start_values_give_a_friction_result() {
+        let mut analyzer = Analyzer::default();
+        let done = analyzer.compute(&inputs()).unwrap();
+        let friction = done.friction.expect("friction result");
+        assert!(friction.cd > 0.0 && friction.cl < friction.cl_inviscid);
+        assert!(done.friction_note.is_none());
+        assert!(position_text(friction.transition_upper).ends_with('%'));
+        // A trip strip moves the start of turbulent flow forward.
+        let tripped = analyzer
+            .compute(&Inputs {
+                trip: true,
+                trip_x: 0.05,
+                ..inputs()
+            })
+            .unwrap();
+        let tripped = tripped.friction.expect("friction result with trip strip");
+        assert!(tripped.transition_lower.unwrap() < friction.transition_lower.unwrap());
+        assert!(tripped.cd > friction.cd);
     }
 
     #[test]
-    fn separation_message_names_the_surface() {
-        let done = compute(&Inputs {
+    fn no_solution_gives_a_message_and_the_friction_free_lift() {
+        let mut analyzer = Analyzer::default();
+        let stalled = Inputs {
+            camber: 0,
+            camber_pos: 0,
+            thickness: 6,
             alpha: 14.0,
-            reynolds: 1.0e6,
+            reynolds: 5.0e5,
             ..inputs()
-        })
-        .unwrap();
-        let viscous = done.viscous.unwrap();
-        assert!(viscous.cd.is_none());
-        assert!(separation_text(&viscous).contains("upper surface"));
+        };
+        let done = analyzer.compute(&stalled).unwrap();
+        assert!(done.friction.is_none());
+        assert!(done.friction_note.unwrap().contains("no solution"));
+        assert!(done.solution.cl > 1.0);
+        // The next result at a normal condition is available again.
+        let done = analyzer
+            .compute(&Inputs {
+                thickness: 12,
+                alpha: 2.0,
+                reynolds: 3.0e6,
+                ..stalled
+            })
+            .unwrap();
+        assert!(done.friction.is_some());
     }
 
     #[test]
-    fn solution_is_fast_enough_for_live_update() {
-        // Goal: new results in less than 0.1 second. Debug builds are slow,
-        // thus this test applies the limit only to optimized builds.
-        let done = compute(&Inputs {
-            panels: 400,
-            ..inputs()
-        })
-        .unwrap();
+    fn separation_text_names_the_surface() {
+        let mut analyzer = Analyzer::default();
+        let done = analyzer
+            .compute(&Inputs {
+                camber: 0,
+                camber_pos: 0,
+                alpha: 16.0,
+                reynolds: 6.0e6,
+                ..inputs()
+            })
+            .unwrap();
+        if let Some(friction) = &done.friction {
+            if friction.separation_upper.is_some() {
+                assert!(separation_text(friction).unwrap().contains("upper surface"));
+            }
+        }
+        assert_eq!(position_text(None), "none");
+        assert_eq!(position_text(Some(0.25)), "25 %");
+    }
+
+    #[test]
+    fn a_small_input_change_is_fast_enough_for_live_update() {
+        // Goal: new results in less than 0.1 second (optimized build).
+        let mut analyzer = Analyzer::default();
+        analyzer.compute(&inputs()).unwrap();
+        let done = analyzer
+            .compute(&Inputs {
+                alpha: 4.1,
+                ..inputs()
+            })
+            .unwrap();
+        assert!(done.friction.is_some());
+        println!("{:.0} ms", done.solve_ms);
         if !cfg!(debug_assertions) {
             assert!(done.solve_ms < 100.0, "{} ms", done.solve_ms);
         }

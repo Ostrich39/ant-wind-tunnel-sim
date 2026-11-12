@@ -74,7 +74,7 @@ fn vortex_coefficients(point: [f64; 2], dir: f64, a: [f64; 2], b: [f64; 2]) -> [
 
 /// Velocity at `point` caused by a source panel from `a` to `b` with a
 /// strength of 1 for each unit of length. Returns (x part, y part).
-fn source_velocity(point: [f64; 2], a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+pub fn source_velocity(point: [f64; 2], a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     let (px, py) = (b[0] - a[0], b[1] - a[1]);
     let s = px.hypot(py);
     let (tx, ty) = (px / s, py / s);
@@ -273,6 +273,99 @@ impl PanelSystem {
             panel_len: self.len.clone(),
             gamma,
         })
+    }
+
+    /// Panel end points (clockwise, first point = last point).
+    pub fn points(&self) -> &[[f64; 2]] {
+        &self.points
+    }
+
+    /// Panel midpoints.
+    pub fn midpoints(&self) -> &[[f64; 2]] {
+        &self.mid
+    }
+
+    /// Panel lengths.
+    pub fn lengths(&self) -> &[f64] {
+        &self.len
+    }
+
+    /// Direction angle of each panel.
+    pub fn angles(&self) -> &[f64] {
+        &self.theta
+    }
+
+    pub fn chord(&self) -> f64 {
+        self.chord
+    }
+
+    /// Velocity at `point` in the direction with angle `dir`, for each unit
+    /// of vortex strength at each panel end point (first list) and for each
+    /// unit of source strength on each panel (second list). The point must
+    /// not be on the surface.
+    pub fn influence_at(&self, point: [f64; 2], dir: f64) -> (Vec<f64>, Vec<f64>) {
+        let m = self.panel_count();
+        let (sd, cd) = dir.sin_cos();
+        let mut vortex = vec![0.0; m + 1];
+        let mut source = vec![0.0; m];
+        for j in 0..m {
+            let (a, b) = (self.points[j], self.points[j + 1]);
+            let [_, _, ct1, ct2] = vortex_coefficients(point, dir, a, b);
+            vortex[j] += ct1;
+            vortex[j + 1] += ct2;
+            let [sx, sy] = source_velocity(point, a, b);
+            source[j] = sx * cd + sy * sd;
+        }
+        (vortex, source)
+    }
+
+    /// Change of the vortex strengths that keeps the flow tangent to the
+    /// surface when an external flow adds the normal velocity `normal` at
+    /// each panel midpoint.
+    pub fn gamma_response(&self, normal: &[f64]) -> Vec<f64> {
+        let mut rhs: Vec<f64> = normal.iter().map(|v| -v).collect();
+        rhs.push(0.0);
+        self.lu.solve(&rhs)
+    }
+
+    /// Surface speed at each panel midpoint caused by the vortex strengths.
+    pub fn tangential_from_gamma(&self, gamma: &[f64]) -> Vec<f64> {
+        self.at
+            .iter()
+            .map(|row| row.iter().zip(gamma).map(|(a, g)| a * g).sum())
+            .collect()
+    }
+
+    /// Effect of a unit source on each panel. Returns two tables:
+    /// `dgamma[p][j]` is the change of the vortex strength at end point j,
+    /// and `dvt[p][i]` is the change of the surface speed at midpoint i,
+    /// for a unit source on panel p.
+    pub fn source_response(&self) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        let m = self.panel_count();
+        let mut dgamma = Vec::with_capacity(m);
+        let mut dvt = Vec::with_capacity(m);
+        for p in 0..m {
+            // Normal velocity on the inner side of each panel.
+            let normal: Vec<f64> = (0..m)
+                .map(|i| if i == p { -0.5 } else { self.source_n[i][p] })
+                .collect();
+            let gamma = self.gamma_response(&normal);
+            let mut vt = self.tangential_from_gamma(&gamma);
+            for (i, value) in vt.iter_mut().enumerate() {
+                *value += self.source_t[i][p];
+            }
+            dgamma.push(gamma);
+            dvt.push(vt);
+        }
+        (dgamma, dvt)
+    }
+
+    /// Lift coefficient for a set of vortex strengths (Kutta-Joukowski).
+    pub fn lift_from_gamma(&self, gamma: &[f64]) -> f64 {
+        let circulation: f64 = (0..self.panel_count())
+            .map(|j| PI * (gamma[j] + gamma[j + 1]) * self.len[j])
+            .sum();
+        2.0 * circulation / self.chord
     }
 
     /// Velocity (x part, y part) at a point that is not on the surface, for

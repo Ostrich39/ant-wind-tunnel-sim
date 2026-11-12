@@ -14,18 +14,16 @@ A desktop program, written in Rust, to design and analyze airfoils.
 - Stage 2 is complete: a desktop window with an airfoil view, a pressure
   plot, and live controls.
 
-- Stage 3a is complete: a one-way boundary layer calculation that gives
-  friction drag, transition positions, and a flow separation warning.
+- Stage 3a is complete: a one-way boundary layer calculation (not used by
+  the program after stage 3b).
+- Stage 3b is complete for attached flow: the flow and the boundary layer
+  are solved together (Drela's method). The program shows lift with
+  friction, drag, the start of turbulent flow, and flow separation.
 
-- Stage 3b has started: source panels and an experimental two-way
-  calculation are in the solver. The program does not use the two-way
-  calculation, because it is not accurate enough.
-
-The friction model does not change the pressure. The lift has no friction
-correction and the program does not predict stall. The drag is valid only
-for attached flow. For the NACA 0012 at a Reynolds number of 6 million, the
-drag is within 6% of wind tunnel data at low lift. See [GOALS.md](GOALS.md)
-for the full validation table.
+Accuracy for the NACA 0012 at a Reynolds number of 6 million, with a trip
+strip, against wind tunnel data: lift within 8%, drag within 8%, for angles
+to 14°. The method is not reliable near stall and after stall. See
+[GOALS.md](GOALS.md) for the full validation table and the limits.
 
 ## Use
 
