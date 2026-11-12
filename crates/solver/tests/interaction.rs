@@ -153,6 +153,80 @@ fn lift_and_drag_with_trip_strip_are_near_the_ladson_data() {
 }
 
 #[test]
+fn near_maximum_lift_the_drag_is_too_low() {
+    // Ladson data from 14.5 deg to the maximum lift at approximately 17 deg.
+    // Measured: lift 3.7% to 5.5% high, drag 3% to 17% low.
+    let friction = system("0012", 120);
+    let settings = options(RE, Some(0.05));
+    let mut count = 0;
+    for row in read("CLCD_Ladson_expdata.dat").iter().flatten() {
+        let (alpha, cl_data, cd_data) = (row[0], row[1], row[2]);
+        if !(14.5..=17.3).contains(&alpha) || cl_data < 1.4 {
+            continue;
+        }
+        let (result, _) = friction.solve_robust(alpha, &settings, None).unwrap();
+        assert!(result.converged, "alpha {alpha}");
+        let (lift, drag) = (
+            (result.cl - cl_data) / cl_data,
+            (result.cd - cd_data) / cd_data,
+        );
+        println!(
+            "alpha {alpha:.2}: lift {:+.1}%, drag {:+.1}%",
+            lift * 100.0,
+            drag * 100.0
+        );
+        assert!(lift > 0.0 && lift < 0.08, "alpha {alpha}: lift {lift}");
+        assert!(drag < 0.0 && drag > -0.22, "alpha {alpha}: drag {drag}");
+        count += 1;
+    }
+    assert!(count >= 6);
+}
+
+#[test]
+fn abrupt_stall_is_not_predicted() {
+    // Known limit. In the Ladson data, the airfoil stalls between 17 deg and
+    // 18 deg: the lift decreases from 1.6 to 1.0. The model gives a slow
+    // growth of the separation from the trailing edge, and its lift does not
+    // decrease. This test records the limit. Change it when the model can
+    // predict the stall.
+    let friction = system("0012", 120);
+    let (result, _) = friction
+        .solve_robust(18.02, &options(RE, Some(0.05)), None)
+        .unwrap();
+    let cl_data = 0.9967;
+    assert!(result.converged);
+    assert!(result.cl > 1.5 * cl_data, "model lift {}", result.cl);
+    // The model does show separation on the upper surface at this angle.
+    assert!(result.separation_upper.is_some_and(|x| x < 0.9));
+}
+
+#[test]
+fn solution_exists_for_the_normal_angle_range() {
+    // Each condition must converge from the friction-free start, without
+    // help from a solution at a different angle.
+    for (code, re, last_angle) in [
+        ("0012", 6.0e6, 18),
+        ("2412", 3.0e6, 16),
+        ("4412", 3.0e6, 14),
+        ("4415", 1.0e6, 12),
+        ("0012", 2.0e5, 12),
+        ("0006", 5.0e5, 6),
+    ] {
+        let friction = system(code, 120);
+        for step in -2..=last_angle / 2 {
+            let alpha = step as f64 * 2.0;
+            let (result, _) = friction.solve(alpha, &options(re, None), None).unwrap();
+            assert!(result.converged, "NACA {code}, Re {re:.0e}, alpha {alpha}");
+            assert!(
+                result.cd > 0.003 && result.cd < 0.06,
+                "NACA {code} alpha {alpha}: cd {}",
+                result.cd
+            );
+        }
+    }
+}
+
+#[test]
 fn drag_with_free_transition_against_the_abbott_data() {
     // Abbott and von Doenhoff: no trip strip, digitized from a plot.
     let friction = system("0012", 120);

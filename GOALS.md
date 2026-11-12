@@ -41,17 +41,25 @@ The project is for personal use and learning. It is not for sale.
 | 3b-1 | Source panels for the displacement effect; fast repeated solution of the panel equations | Done |
 | 3b-2 | Two-way calculation by direct iteration (experimental) | Removed. It was not accurate enough. Stage 3b-3 replaces it |
 | 3b-3 | Wake panels and simultaneous solution of the flow and the boundary layer (Drela's method): lift with friction, drag, mild separation | Done. The program uses it |
-| 3b-4 | Reliable results near stall and after stall; separation bubbles; transition between stations | Not started |
+| 3b-4a | Solution at high angles: start march with inverse mode, moving stagnation point, update limits of the paper | Done |
+| 3b-4b | Prediction of abrupt stall; separation bubbles; transition between stations | Not started |
 | 4 | Shape editor and airfoil file import (.dat) | Not started |
 | 5 | Flow field display (streamlines, pressure colors) | Not started |
 | 6 | Live flow solver for arbitrary shapes (approximate) | Not started |
 
 ## Limits of the current model (stage 3b-3, used by the program)
 
-- **Stall.** The calculation is not reliable near stall and after stall.
-  For many conditions in that range it has no solution, and the program
-  then shows a message and no drag value. A result that it does give near
-  stall can have a lift that is too high.
+- **Stall.** The calculation does not predict an abrupt stall. It gives a
+  slow growth of the separation from the trailing edge, and its lift does
+  not decrease. For the NACA 0012 at a Reynolds number of 6 million, the
+  wind tunnel lift decreases from 1.6 to 1.0 between 17° and 18°. The model
+  lift at 18° is 1.74 (74% too high), and its drag is 87% too low. The
+  window shows a warning when the flow separates before 95% of the chord.
+- **Near maximum lift** (15° to 17° for that airfoil): the lift is 4% to 6%
+  too high and the drag is 3% to 17% too low.
+- **No solution.** For some conditions in deep stall there is no solution
+  (for example a thin airfoil at a high angle). The window then shows a
+  message and no drag value.
 - **Separation bubbles.** A laminar separation bubble is not modeled.
   Turbulent flow starts at the laminar separation point or before it. This
   is most important at Reynolds numbers below approximately 500 000.
@@ -76,7 +84,7 @@ The method is the same in principle (Drela 1989). These parts are different:
 | Boundary layer stations | Panel midpoints | Panel end points |
 | Transition | At a station | At a position between two stations |
 | Jacobian matrix | Finite differences, full matrix solution | Analytic, block solution |
-| Stagnation point | Fixed in one Newton solution, then checked | Moves in each iteration |
+| Stagnation point | Moves to a different panel when the surface speed near it changes sign. Its position inside a panel is fixed | Moves in each iteration |
 | Amplification equation | With the modification of Fidkowski (mfoil) | Original |
 | Panel method | Linear vortex panels, velocity form | Linear vortex panels, stream function form |
 
@@ -90,6 +98,8 @@ the papers (REFERENCES.md, items 2.1, 2.2, 2.4).
 | Wake length | 1 chord, 20 panels | Assumption (mfoil uses 1 chord) |
 | Trip strip is effective only if the momentum-thickness Reynolds number is 200 or more | 200 | Assumption. No source is recorded |
 | Trip strip position for the Ladson comparison | 5% of chord | Assumption. The position is not in the data file |
+| Edge speed for the start march in the last 10% of the chord | Straight continuation of the speed between 80% and 90% of the chord | Assumption. The friction-free flow has a stagnation point at the trailing edge. This changes the start values only, not the solution |
+| Laminar separation starts turbulent flow | Shape factor 3.8 (limit of the paper for the direct march) | No separation bubble model. The rule applies near convergence, or after 10 iterations |
 | Panels at the trailing edge | Approximately 1% of chord (120 panels) | Smaller panels made the calculation unstable |
 
 ## Validation status of stage 3b-3
@@ -102,7 +112,10 @@ NACA 0012, Reynolds number 6 million, 120 panels.
 | Drag with trip strip, angles −4° to 14.3° (38 points) | Ladson wind tunnel data | −8.7% to +5.1%. The scatter between the three data sets is approximately 4% |
 | Drag with free transition, N = 9 (18 points) | Abbott and von Doenhoff data (digitized) | −17.7% to +0.8%. Most points are 10% to 15% low |
 | Effect of N on drag at 0°, free transition | Abbott data value 0.0059 | N = 9: 0.0049. N = 7: 0.0053. N = 5: 0.0058. N = 3: 0.0064 |
-| Angles above 14.3° | Ladson data continue to 19°, with stall at approximately 17° | Not validated. The model has no reliable result here |
+| Lift and drag with trip strip, 15.2° to 17.2° (9 points, to the maximum lift) | Ladson wind tunnel data | Lift 3.7% to 5.5% high. Drag 3% to 17% low |
+| Lift with trip strip at 18° (after the stall) | Ladson wind tunnel data: 1.00 | Model: 1.74. The model does not predict the stall |
+| Conditions with a solution from the friction-free start: 7 airfoil and Reynolds number sets, 13 angles from −4° to 20° | Number of solutions | 77 of 91. Before stage 3b-4a: 60 of 91. The 14 conditions without a solution are in deep stall |
+| Iterations for one solution | Same 91 conditions | Median 5, 90% in 20 or less, largest 48 |
 | Panel count 120 and 200 | Same case | Lift changes 0.1%, drag changes 1.3% |
 | Laminar flat plate | Blasius exact solution | Thickness, friction, and shape factor within 1% |
 | Stagnation flow | Hiemenz exact solution | Thickness within 0.3% (stage 3a: 6%) |
@@ -110,8 +123,10 @@ NACA 0012, Reynolds number 6 million, 120 panels.
 | Turbulent flat plate drag | Prandtl-Schlichting formula | 5% to 7% low at Reynolds numbers of 10 and 100 million |
 | Other airfoils, other Reynolds numbers | Wind tunnel data | Not compared |
 
-Speed: one solution takes 30 ms to 60 ms for 120 panels (target: below
-100 ms). A condition without a solution takes 100 ms to 200 ms.
+Speed: one solution takes 30 ms to 60 ms for 120 panels in the normal
+angle range (target: below 100 ms). Near stall it can take 150 ms to
+350 ms. A condition without a solution takes approximately 400 ms in the
+window.
 
 ## Check of the equations against the paper (12 November 2026)
 
@@ -134,6 +149,8 @@ Parts of the method that are different from the paper on purpose:
 | Transition (equations 16 to 19) | At a position between two stations | At a station | The first version of the paper's method in this program made convergence worse. This is the work of stage 3b-4 |
 | First wake station (equation 14) | Sum of the two boundary layers at the trailing edge point | Wake equations from the last airfoil stations to the first wake station | The stations of this program are panel midpoints, thus the last airfoil stations and the first wake station are at different positions |
 | First station after the stagnation point | Extrapolation of the first two nodes | Edge speed proportional to the distance, slope from the second station | Simpler, and stable when the stagnation point moves |
+| Start values (section V.A) | March with direct mode, then inverse mode, then extrapolation | The same, and a smooth edge speed near the trailing edge; laminar separation starts turbulent flow | The stations of this program are near a trailing edge stagnation point that the node speeds of the paper do not have |
+| Update limits (section V.B) | One factor for all unknowns | The same limits | No difference |
 | Number of wake panels | N/10 + 10 (22 for 120 panels) | 20 | No reason. Not important for the results |
 
 ## Stage 3a (one-way calculation)

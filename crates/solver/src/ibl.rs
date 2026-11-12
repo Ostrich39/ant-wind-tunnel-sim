@@ -403,3 +403,67 @@ pub fn step(start: &State, xi: f64, ue: f64, re: f64, n_crit: f64) -> Option<Sta
     };
     (ok && next.theta > 0.0 && next.dstar > 0.0 && next.h() < limit).then_some(next)
 }
+
+/// Solves the next station in "inverse" mode: the shape factor at the
+/// station is given, and the edge speed is an unknown. This mode has a
+/// solution where the direct mode has none (near separation and after it).
+/// It is used only to make start values.
+pub fn inverse_step(
+    start: &State,
+    xi: f64,
+    ue_guess: f64,
+    re: f64,
+    n_crit: f64,
+    h_target: f64,
+) -> Option<State> {
+    let laminar = start.flow == Flow::Laminar;
+    let guess = State {
+        xi,
+        ue: ue_guess,
+        ..*start
+    };
+    let mut unknowns = [guess.theta, h_target * guess.theta, guess.s, start.ue];
+    let ok = newton(&mut unknowns, |v| {
+        let s = if laminar { v[2] } else { v[2].max(1e-7) };
+        let state = State {
+            theta: v[0],
+            dstar: v[1],
+            s,
+            ue: v[3].max(1e-6),
+            ..guess
+        };
+        let r = residuals(start, &state, re, n_crit);
+        [r[0], r[1], r[2], v[1] / v[0] - h_target]
+    });
+    let next = State {
+        theta: unknowns[0],
+        dstar: unknowns[1],
+        s: if laminar {
+            unknowns[2]
+        } else {
+            unknowns[2].max(1e-7)
+        },
+        ue: unknowns[3],
+        ..guess
+    };
+    (ok && next.theta > 0.0 && next.dstar > 0.0 && next.ue > 0.0).then_some(next)
+}
+
+/// Shape factor for the inverse mode at the next station (Fidkowski,
+/// equations 20 to 22).
+pub fn inverse_target(start: &State, xi: f64) -> f64 {
+    let h1 = start.h();
+    let dh = (xi - start.xi) / start.theta;
+    match start.flow {
+        Flow::Laminar => (h1 + 0.03 * dh).max(H_LIMIT_LAMINAR),
+        Flow::Turbulent => (h1 - 0.15 * dh).max(H_LIMIT_TURBULENT),
+        Flow::Wake => {
+            let mut h2 = h1;
+            for _ in 0..6 {
+                h2 -= (h2 + 0.03 * dh * (h2 - 1.0).powi(3) - h1)
+                    / (1.0 + 0.09 * dh * (h2 - 1.0).powi(2));
+            }
+            h2.max(1.01)
+        }
+    }
+}
