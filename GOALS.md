@@ -37,17 +37,44 @@ The project is for personal use and learning. It is not for sale.
 |---|---|---|
 | 1 | Inviscid panel method, NACA 4-digit shapes, validation tests | Done |
 | 2 | Desktop window: airfoil view, pressure plot, live controls for angle and NACA shape | Done |
-| 3 | Boundary layer (friction drag, transition, Reynolds number) from Drela 1989 | Not started |
+| 3a | One-way boundary layer: friction drag, transition, Reynolds number, separation warning | Done |
+| 3b | Two-way (coupled) boundary layer from Drela 1989: lift correction, separation bubbles, stall | Not started |
 | 4 | Shape editor and airfoil file import (.dat) | Not started |
 | 5 | Flow field display (streamlines, pressure colors) | Not started |
 | 6 | Live flow solver for arbitrary shapes (approximate) | Not started |
 
-## Limits of stage 1
+## Limits of the current model (stages 1 to 3a)
 
-- The solver ignores friction. Thus the drag value is not physical; theory
-  says it is zero, and the printed value shows the numerical error.
-- Lift values are too high compared with wind tunnel data, and the solver
-  cannot predict stall. Stage 3 corrects this.
+- The boundary layer calculation is one-way. It uses the pressure from the
+  friction-free solution and does not change it.
+- Thus the lift has no friction correction. Lift values are too high
+  compared with wind tunnel data, and the program cannot predict stall.
+- The drag value is valid only for attached flow. If the turbulent boundary
+  layer separates before 98% of the chord, the program gives no drag value
+  and shows where the flow separates.
+- The laminar separation bubble is not modeled. Laminar separation starts
+  turbulent flow at the same position.
+- The drag is not yet compared with wind tunnel data.
+- Stage 3b corrects the first four limits.
+
+## Assumptions in stage 3a
+
+| Assumption | Value | Basis |
+|---|---|---|
+| Shape factor at the start of turbulent flow | 1.4 | Assumption. No source is recorded |
+| Shape factor at turbulent separation | 2.4 | Published range is 1.8 to 2.4 (REFERENCES.md 1.11) |
+| Drag reference station | 98% of chord | Assumption. The friction-free flow has a stagnation point at the trailing edge that a real flow does not have |
+
+## Validation status of stage 3a
+
+| Quantity | Compared with | Result |
+|---|---|---|
+| Laminar flat plate: thickness, friction, shape factor | Blasius exact solution | Difference 1.0%, 1.2%, 0.8% |
+| Stagnation flow thickness | Thwaites closed form; Hiemenz exact solution | Equal to the closed form; 6% below the exact solution (known property of Thwaites' method) |
+| Decelerating (Howarth) flow | Thwaites closed form; published separation position | Equal to the closed form; separation at x = 0.123 (published 0.123; exact 0.1199) |
+| Turbulent flat plate drag | Prandtl-Schlichting formula | Difference 7% at Re 1e6, 6% at Re 1e7, 12% at Re 1e8 |
+| Airfoil drag | Wind tunnel data | Not compared. The data files were not available to the test computer |
+| Airfoil drag, internal checks | Symmetry, trend with Reynolds number, panel count | Pass. Change of 1% to 2% when the panel count doubles |
 
 ## Status against the performance goals (stage 2)
 
@@ -75,6 +102,11 @@ The project is for personal use and learning. It is not for sale.
 - Each number in a test must have a source in `REFERENCES.md` or come from
   an exact solution.
 - Each new source goes into `REFERENCES.md` in the same change.
+
+## Open items for stage 3a
+
+- Add the NASA data files for the NACA 0012 (REFERENCES.md, section 4) to
+  the repository, then add a drag comparison test.
 
 ## Open decisions
 

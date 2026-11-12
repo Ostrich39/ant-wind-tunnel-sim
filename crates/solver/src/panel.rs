@@ -31,6 +31,11 @@ pub struct Solution {
     pub cp: Vec<f64>,
     /// Surface speed at each panel midpoint, divided by the free-stream speed.
     pub speed: Vec<f64>,
+    /// Signed surface speed at each panel midpoint. Positive is in the
+    /// direction of the point order (clockwise).
+    pub vt: Vec<f64>,
+    /// Length of each panel.
+    pub panel_len: Vec<f64>,
 }
 
 pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
@@ -125,6 +130,7 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
     let (mut fx, mut fy, mut mz) = (0.0, 0.0, 0.0);
     let mut cp = Vec::with_capacity(m);
     let mut speed = Vec::with_capacity(m);
+    let mut vt = Vec::with_capacity(m);
     for i in 0..m {
         let v =
             (theta[i] - alpha).cos() + at[i].iter().zip(&gamma).map(|(a, g)| a * g).sum::<f64>();
@@ -137,6 +143,7 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
         mz += (mid[i][0] - x_ref) * dfy - mid[i][1] * dfx;
         cp.push(cpi);
         speed.push(v.abs());
+        vt.push(v);
     }
     let (sa, ca) = alpha.sin_cos();
     // Lift from the total circulation (Kutta-Joukowski theorem). This is
@@ -152,5 +159,7 @@ pub fn solve(foil: &Airfoil, alpha_deg: f64) -> Result<Solution, String> {
         mid,
         cp,
         speed,
+        vt,
+        panel_len: len,
     })
 }
