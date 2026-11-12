@@ -12,6 +12,7 @@ pub mod ibl;
 pub mod linalg;
 pub mod panel;
 pub mod viscous;
+pub mod wake;
 
 pub use coupled::{solve_coupled, CoupledResult};
 pub use geometry::{joukowski, naca4, Airfoil};
