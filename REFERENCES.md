@@ -80,8 +80,10 @@ No code from this software is copied into this project.
 |---|---|---|---|
 | 4.1 | Řezníček, T. (2023). *Open source and commercial CFD codes comparison on 2D airfoil analysis*. Bachelor's thesis, Brno University of Technology. https://theses.cz/id/nw0p3h/TomasReznicek_BP_2023.pdf | OpenFOAM and ANSYS Fluent compared with wind tunnel data | Checked |
 
-| 4.2 | NASA Turbulence Modeling Resource. 2D NACA 0012 Airfoil Validation Case. https://tmbwg.github.io/turbmodels/naca0012_val.html | Wind tunnel data for the NACA 0012 at Re = 6 million. Ladson data with a trip strip: `NACA0012_validation/CLCD_Ladson_expdata.dat`. Abbott and von Doenhoff data without a trip strip: `NACA0012_validation/0012.abbottdata.cd.dat` | Checked (page). Data files not read: the test computer could not get them |
+| 4.2 | NASA Turbulence Modeling Resource. 2D NACA 0012 Airfoil Validation Case. https://tmbwg.github.io/turbmodels/naca0012_val.html | Wind tunnel data for the NACA 0012 at Re = 6 million. Ladson data with a trip strip: `NACA0012_validation/CLCD_Ladson_expdata.dat`. Abbott and von Doenhoff data without a trip strip: `NACA0012_validation/0012.abbottdata.cd.dat` | Checked. The two data files are in `data/naca0012/` and a test reads them |
 | 4.3 | McCroskey, W. J. (1987). A Critical Assessment of Wind Tunnel Results for the NACA 0012 Airfoil. NASA TM 100019. https://ntrs.nasa.gov/citations/19880002254 | Review of NACA 0012 wind tunnel data | Checked (citation). Report not read |
+
+| 4.4 | Ladson, C. L. (1988). NASA TM 4074. (Citation as given in the data file. Title not checked.) | Source of the tripped NACA 0012 data in item 4.2 | Checked (report number and year, from the data file) |
 
 ## 5. Removed items
 
@@ -92,6 +94,6 @@ No code from this software is copied into this project.
 
 - Confirm item 1.4 (Anderson: edition and section) and the publication year of item 1.1.
 - Resolve the paper number of item 2.3.
-- Get the data files of item 4.2 and add a drag comparison test.
+- Confirm the trip strip position in item 4.4.
 - Confirm items 1.9, 1.12, 1.16 and the equations from memory in item 1.8.
 - Find a source for the shape factor 1.4 at the start of turbulent flow.

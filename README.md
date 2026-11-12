@@ -19,7 +19,9 @@ A desktop program, written in Rust, to design and analyze airfoils.
 
 The friction model does not change the pressure. The lift has no friction
 correction and the program does not predict stall. The drag is valid only
-for attached flow and is not yet compared with wind tunnel data.
+for attached flow. For the NACA 0012 at a Reynolds number of 6 million, the
+drag is within 6% of wind tunnel data at low lift. See [GOALS.md](GOALS.md)
+for the full validation table.
 
 ## Use
 
