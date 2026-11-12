@@ -75,7 +75,7 @@ The project is for personal use and learning. It is not for sale.
 | Stagnation flow thickness | Thwaites closed form; Hiemenz exact solution | Equal to the closed form; 6% below the exact solution (known property of Thwaites' method) |
 | Decelerating (Howarth) flow | Thwaites closed form; published separation position | Equal to the closed form; separation at x = 0.123 (published 0.123; exact 0.1199) |
 | Turbulent flat plate drag | Prandtl-Schlichting formula | Difference 7% at Re 1e6, 6% at Re 1e7, 12% at Re 1e8 |
-| NACA 0012 drag with trip strip, Re 6 million, angles −4° to 8.3° | Ladson wind tunnel data (26 points) | Difference −5.4% to +4.1%. The scatter between the three data sets is approximately 4% |
+| NACA 0012 drag with trip strip, Re 6 million, angles −4° to 8.3° | Ladson wind tunnel data (23 points) | Difference −5.4% to +4.1%. The scatter between the three data sets is approximately 4% |
 | NACA 0012 drag, free transition, Re 6 million, lift coefficient to ±0.46 | Abbott and von Doenhoff data (digitized) | Difference −1.1% to +5.3% |
 | NACA 0012 drag, free transition, lift coefficient 0.55 to 1.08 | Abbott and von Doenhoff data (digitized) | Model is 8% to 17% low |
 | NACA 0012 lift at the same angle, 2° to 8.3° | Ladson wind tunnel data | Model is 9% to 17% high (no friction correction) |
