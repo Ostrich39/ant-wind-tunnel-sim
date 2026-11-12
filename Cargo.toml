@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/solver"]
+members = ["crates/solver", "crates/app"]
 
 # Small, fast release builds (goal: program below 20 MB).
 [profile.release]
